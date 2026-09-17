@@ -10,11 +10,13 @@ import {
   X,
   LogIn,
   LogOut,
+  Swords,
 } from 'lucide-react';
 import type { User } from '@supabase/supabase-js';
 import Starfield from '@/components/Starfield';
 import ClanTable from '@/components/ClanTable';
 import AccountsPage from '@/components/AccountsPage';
+import WarsPage from '@/components/WarsPage';
 import { DEFAULT_COLUMNS } from '@/columns';
 import { fetchClansFromSheet } from '@/sheetsFetcher';
 import { supabase } from '@/supabaseClient';
@@ -41,7 +43,7 @@ export default function App() {
   const [allowedRole, setAllowedRole] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showProfile, setShowProfile] = useState(false);
-  const [activePage, setActivePage] = useState<'roster' | 'accounts'>('roster');
+  const [activePage, setActivePage] = useState<'roster' | 'accounts' | 'wars'>('roster');
 
   useEffect(() => {
     let active = true;
@@ -269,6 +271,7 @@ export default function App() {
             <nav className="flex items-center gap-1" aria-label="Main navigation">
               <button onClick={() => setActivePage('roster')} className={`astral-btn-ghost text-sm ${activePage === 'roster' ? 'border-gold-400/50 text-gold-300' : ''}`}>Roster</button>
               <button onClick={() => setActivePage('accounts')} className={`astral-btn-ghost text-sm ${activePage === 'accounts' ? 'border-gold-400/50 text-gold-300' : ''}`}>Accounts</button>
+              <button onClick={() => setActivePage('wars')} className={`astral-btn-ghost text-sm ${activePage === 'wars' ? 'border-gold-400/50 text-gold-300' : ''}`}><Swords className="w-4 h-4" /> Wars</button>
             </nav>
 
             <div className="relative">
@@ -336,7 +339,7 @@ export default function App() {
         </section>
       )}
 
-      {activePage === 'accounts' ? <AccountsPage /> : <>
+      {activePage === 'accounts' ? <AccountsPage /> : activePage === 'wars' ? <WarsPage /> : <>
 
       {/* Toolbar */}
       <div className="relative z-30 sticky top-0 bg-space-900/80 backdrop-blur-md border-b border-astral-700/20 overflow-visible">
