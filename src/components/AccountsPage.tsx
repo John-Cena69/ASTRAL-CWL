@@ -9,7 +9,7 @@ interface FillerAccount {
   town_hall: number | null;
   war_weight: number | null;
   owner: string;
-  clan_name?: string;
+  clan_name: string | null;
 }
 
 interface FamilyClan {
@@ -63,7 +63,7 @@ export default function AccountsPage() {
     setError(null);
     const [{ data: accountRows, error: accountError }, { data: clanRows, error: clanError }] =
       await Promise.all([
-        supabase.from('filler_accounts').select('player_tag, player_name, clan_tag, town_hall, war_weight, owner').order('player_tag'),
+        supabase.from('filler_accounts').select('player_tag, player_name, clan_tag, clan_name, town_hall, war_weight, owner').order('player_tag'),
         supabase.from('family_clans').select('clan_tag, clan_name').order('clan_name'),
       ]);
 
@@ -77,11 +77,11 @@ export default function AccountsPage() {
     setClans(clanRows ?? []);
     setAccounts(
       ((accountRows ?? []) as FillerAccount[]).map((account) => {
-        const clanName = account.clan_tag ? clanMap.get(account.clan_tag) ?? 'Available' : 'Available';
+        const familyClanName = account.clan_tag ? clanMap.get(account.clan_tag) : undefined;
         return {
           ...account,
-          clan_tag: clanName === 'Available' ? null : account.clan_tag,
-          clan_name: clanName,
+          clan_tag: familyClanName ? account.clan_tag : null,
+          clan_name: familyClanName ?? account.clan_name,
         };
       })
     );
@@ -100,7 +100,7 @@ export default function AccountsPage() {
     return accounts.filter((account) =>
       (!playerQuery || account.player_tag.includes(playerQuery)) &&
       (!ownerQuery || account.owner.includes(ownerQuery)) &&
-      (!clanFilter || (clanFilter === AVAILABLE_FILTER ? account.clan_name === 'Available' : account.clan_tag === clanFilter)) &&
+      (!clanFilter || (clanFilter === AVAILABLE_FILTER ? !account.clan_tag : account.clan_tag === clanFilter)) &&
       (!townHallFilter || (townHallFilter === 'none' ? account.town_hall === null : account.town_hall === Number(townHallFilter)))
     );
   }, [accounts, playerFilter, ownerFilter, clanFilter, townHallFilter]);
@@ -115,7 +115,9 @@ export default function AccountsPage() {
     sorted.sort((left, right) => {
       let comparison = 0;
       if (sortState.column === 'clan') {
-        comparison = (left.clan_name ?? 'Available').localeCompare(right.clan_name ?? 'Available');
+        comparison = (left.clan_tag ? left.clan_name ?? 'Available' : 'Available').localeCompare(
+          right.clan_tag ? right.clan_name ?? 'Available' : 'Available'
+        );
       } else if (sortState.column === 'owner') {
         comparison = left.owner.localeCompare(right.owner);
       } else {
@@ -310,7 +312,7 @@ export default function AccountsPage() {
                   <tr key={account.player_tag} className="border-t border-astral-700/15 hover:bg-astral-700/10">
                     <td className="px-4 py-3 font-mono text-gold-300">{account.player_tag}</td>
                     <td className="px-4 py-3 text-astral-100">{account.player_name || '—'}</td>
-                    <td className="px-4 py-3"><span className="text-astral-100">{account.clan_name}</span>{account.clan_tag && <span className="block text-xs text-astral-300/50">{account.clan_tag}</span>}</td>
+                    <td className="px-4 py-3"><span className="text-astral-100">{account.clan_tag ? account.clan_name : 'Available'}</span>{account.clan_tag ? <span className="block text-xs text-astral-300/50">{account.clan_tag}</span> : account.clan_name && <span className="block text-xs text-astral-300/50">{account.clan_name}</span>}</td>
                     <td className="px-4 py-3 text-astral-100">{account.town_hall ?? '—'}</td>
                     <td className="px-4 py-3 text-astral-100">{isEditing ? <input type="number" min="0" step="1" value={editingWeight} onChange={(event) => setEditingWeight(event.target.value)} onKeyDown={(event) => handleEditKeyDown(event, account.player_tag)} className="astral-input w-28 py-1.5" aria-label={`War weight for ${account.player_tag}`} /> : account.war_weight ?? '—'}</td>
                     <td className="px-4 py-3 text-astral-100">{isEditing ? <input maxLength={50} value={editingOwner} onChange={(event) => setEditingOwner(event.target.value.toUpperCase())} onKeyDown={(event) => handleEditKeyDown(event, account.player_tag)} className="astral-input w-36 py-1.5 uppercase" aria-label={`Owner for ${account.player_tag}`} /> : account.owner}</td>
