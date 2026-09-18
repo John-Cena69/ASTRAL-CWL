@@ -135,7 +135,7 @@ function getGameTemplate(opponentName: string, isWin: boolean) {
     ? `💎Win War vs ${opponentName}✅
 ▪️1st Attack: 3 star your mirror.
 ▪️2nd Attack: 1 or 2 star any base anytime. If not, please wait for the "Last 12 hours of clean up time" to 3 star any base. ⚠️Ask for any doubts.`
-    : `💎Win War vs ${opponentName}❌
+    : `💎Lose War vs ${opponentName}❌
 ▪️1st Attack: 2 star your mirror.
 ▪️2nd Attack: 1 star any base anytime. If not, please wait for the "Last 12 hours of clean up time" to 2 star any base. ⚠️Ask for any doubts.`;
 }
