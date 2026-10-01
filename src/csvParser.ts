@@ -61,6 +61,12 @@ const HEADER_MAP: Record<string, keyof Player> = {
   weight: 'warWeight',
   homeclan: 'homeClan',
   clan: 'homeClan',
+  presentclan: 'presentClan',
+  presentclanname: 'presentClan',
+  currentclan: 'presentClan',
+  currentclanname: 'presentClan',
+  actualclan: 'presentClan',
+  actualclanname: 'presentClan',
   status: 'status',
 };
 
@@ -72,10 +78,11 @@ function mapRow(row: string[], headers: string[]): Player {
     townHall: 0,
     warWeight: 0,
     homeClan: '',
+    presentClan: '',
     status: '',
   };
   headers.forEach((h, i) => {
-    const key = HEADER_MAP[normalizeHeader(h)];
+    const key = HEADER_MAP[normalizeHeader(h)] || (i === 9 ? 'presentClan' : undefined);
     if (!key) return;
     const value = (row[i] || '').trim();
     if (key === 'townHall') {
