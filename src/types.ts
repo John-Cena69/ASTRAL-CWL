@@ -5,6 +5,7 @@ export interface Player {
   townHall: number;
   warWeight: number;
   homeClan: string;
+  presentClan: string;
   status: string;
 }
 
