@@ -16,6 +16,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import type { Clan, ColumnConfig, ColumnKey, SortState } from '@/types';
+import { buildClanMissingMentions, formatDiscordMention } from '@/discordMentions';
 
 interface ClanTableProps {
   clan: Clan;
@@ -202,6 +203,10 @@ export default function ClanTable({
                   value={`https://link.clashofclans.com/en?action=OpenClanProfile&tag=${encodeURIComponent(clan.clanTag)}`}
                   label="Copy Link"
                 />
+                <SummaryCopyButton
+                  value={buildClanMissingMentions(clan)}
+                  label="Copy Missing"
+                />
               </div>
             </div>
           </div>
@@ -347,7 +352,9 @@ export default function ClanTable({
                             <span className="text-astral-100">
                               {player[col.key] || '—'}
                             </span>
-                            {player[col.key] && <CellCopyButton value={player[col.key]} />}
+                            {player[col.key] && (
+                              <CellCopyButton value={formatDiscordMention(player[col.key])} />
+                            )}
                           </div>
                         ) : (
                           <span className="text-astral-100">
