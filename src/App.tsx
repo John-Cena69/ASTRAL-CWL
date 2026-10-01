@@ -6,6 +6,8 @@ import {
   EyeOff,
   AlertCircle,
   ChevronDown,
+  Check,
+  Copy,
   Info,
   X,
   LogIn,
@@ -21,6 +23,7 @@ import { DEFAULT_COLUMNS } from '@/columns';
 import { fetchClansFromSheet } from '@/sheetsFetcher';
 import { supabase } from '@/supabaseClient';
 import type { Clan, ColumnConfig, ColumnKey, SortState } from '@/types';
+import { buildAllMissingMentions } from '@/discordMentions';
 
 const DEFAULT_SHEET_URL =
   import.meta.env.VITE_SHEET_URL;
@@ -43,6 +46,7 @@ export default function App() {
   const [allowedRole, setAllowedRole] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showProfile, setShowProfile] = useState(false);
+  const [copiedMissing, setCopiedMissing] = useState(false);
   const [activePage, setActivePage] = useState<'roster' | 'accounts' | 'wars'>('roster');
 
   useEffect(() => {
@@ -190,6 +194,18 @@ export default function App() {
   };
 
   const hiddenCount = columns.filter((c) => !c.visible).length;
+
+  const copyAllMissing = async () => {
+    const value = buildAllMissingMentions(clans);
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedMissing(true);
+      window.setTimeout(() => setCopiedMissing(false), 1500);
+    } catch {
+      // clipboard not available
+    }
+  };
 
   const toggleClanHidden = (clanKey: string) => {
     setHiddenClans((prev) => {
@@ -416,6 +432,16 @@ export default function App() {
                   </>
                 )}
               </div>
+
+              <button
+                onClick={() => void copyAllMissing()}
+                className="astral-btn-ghost text-sm"
+                title="Copy all missing players"
+                disabled={!buildAllMissingMentions(clans)}
+              >
+                {copiedMissing ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                <span className="hidden sm:inline">{copiedMissing ? 'Copied' : 'Copy Missing'}</span>
+              </button>
 
             </div>
           </div>
