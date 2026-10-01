@@ -50,6 +50,7 @@ function makePlayers(count: number, seed: number, homeClan: string): Player[] {
       townHall: TH_LEVELS[Math.floor(rand() * TH_LEVELS.length)],
       warWeight: Math.round((rand() * 60 + 80) * 10) / 10,
       homeClan,
+      presentClan: '',
       status: STATUSES[Math.floor(rand() * STATUSES.length)],
     });
   }
