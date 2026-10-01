@@ -318,14 +318,23 @@ export default function ClanTable({
                             {player.warWeight}
                           </span>
                         ) : col.key === 'status' ? (
-                          <span
-                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${
-                              STATUS_STYLES[player.status] ||
-                              'bg-astral-500/15 text-astral-300 border-astral-500/30'
-                            }`}
-                          >
-                            {player.status || '—'}
-                          </span>
+                          <div className="flex flex-col items-start gap-1">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${
+                                STATUS_STYLES[player.status] ||
+                                'bg-astral-500/15 text-astral-300 border-astral-500/30'
+                              }`}
+                            >
+                              {player.status || '—'}
+                            </span>
+                            {(player.status === 'In Other Clan' ||
+                              player.status === 'In Wrong CWL Clan') &&
+                              player.presentClan && (
+                                <span className="text-xs text-astral-300/70">
+                                  {player.presentClan}
+                                </span>
+                              )}
+                          </div>
                         ) : col.key === 'playerTag' ? (
                           <div className="flex items-center gap-1.5">
                             <span className="font-mono text-astral-200">
