@@ -109,7 +109,7 @@ export default function ClansPage() {
     void loadClans();
   }, []);
 
-  const authedFetch = async (method: 'POST' | 'DELETE', clanTag: string) => {
+  const authedFetch = async (method: 'POST' | 'DELETE', payload: Record<string, unknown>) => {
     if (!supabase) throw new Error('Supabase is not configured.');
     const { data: session } = await supabase.auth.getSession();
     const token = session.session?.access_token;
@@ -119,10 +119,11 @@ export default function ClansPage() {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ clan_tag: clanTag }),
+      body: JSON.stringify(payload),
     });
     const body = (await response.json().catch(() => ({}))) as { error?: string };
     if (!response.ok) throw new Error(body.error || `Request failed (HTTP ${response.status}).`);
+    return body;
   };
 
   const handleAdd = async (event: React.FormEvent) => {
@@ -136,7 +137,7 @@ export default function ClansPage() {
     setError(null);
     setMessage(null);
     try {
-      await authedFetch('POST', tag);
+      await authedFetch('POST', { clan_tag: tag });
       setTagInput('');
       setShowAdd(false);
       setMessage(`${tag} added — details fetched from the CoC API.`);
@@ -153,13 +154,38 @@ export default function ClansPage() {
     }
   };
 
+  const handleRefreshAll = async () => {
+    if (!supabase || deletingTag) return;
+    setDeletingTag('__refresh__');
+    setError(null);
+    setMessage(null);
+    try {
+      const body = (await authedFetch('POST', { refresh_all: true })) as {
+        refreshed?: number;
+        total?: number;
+        errors?: string[];
+      };
+      const errDetail = body.errors?.length ? ` Issues: ${body.errors.join(' | ').slice(0, 300)}` : '';
+      setMessage(`Refreshed ${body.refreshed ?? 0} of ${body.total ?? 0} clan(s) from the CoC API.${errDetail}`);
+      await loadClans();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Refresh failed.';
+      setError(
+        message.includes('Failed to fetch') || message.includes('Load failed')
+          ? `${message} (Refresh needs the deployed site or "npx vercel dev" — plain "npm run dev" has no /api.)`
+          : message
+      );
+    } finally {
+      setDeletingTag(null);
+    }
+  };
   const handleDelete = async (clanTag: string) => {
     if (!window.confirm(`Remove ${clanTag} from the CWL directory?`)) return;
     setDeletingTag(clanTag);
     setError(null);
     setMessage(null);
     try {
-      await authedFetch('DELETE', clanTag);
+      await authedFetch('DELETE', { clan_tag: clanTag });
       setClans((current) => current.filter((clan) => clan.clan_tag !== clanTag));
       setMessage(`${clanTag} removed.`);
     } catch (err) {
@@ -183,8 +209,9 @@ export default function ClansPage() {
           <button onClick={() => setShowAdd((current) => !current)} className="astral-btn-primary" title="Add clan">
             <Plus className="w-4 h-4" /> Add clan
           </button>
-          <button onClick={() => void loadClans()} className="astral-btn-ghost" title="Refresh clans">
-            <RefreshCw className="w-4 h-4" /> Refresh
+          <button onClick={() => void handleRefreshAll()} disabled={deletingTag === '__refresh__'} className="astral-btn-ghost" title="Re-fetch all clans from the CoC API">
+            {deletingTag === '__refresh__' ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            {deletingTag === '__refresh__' ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
       </div>
