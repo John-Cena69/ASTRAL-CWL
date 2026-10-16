@@ -249,10 +249,11 @@ export default function WarsPage() {
         upserted?: number;
         checked?: number;
         skipped?: number;
+        skipDetail?: string;
         errors?: string[];
       };
       if (!response.ok) throw new Error(body.error || `Sync failed (HTTP ${response.status}).`);
-      const detail = `checked ${body.checked ?? '?'} clan(s), skipped ${body.skipped ?? '?'}`;
+      const detail = `checked ${body.checked ?? '?'} clan(s), skipped ${body.skipped ?? '?'}${body.skipDetail ? ` (${body.skipDetail})` : ''}`;
       const errDetail = body.errors?.length ? ` Issues: ${body.errors.join(' | ').slice(0, 400)}` : '';
       if ((body.upserted ?? 0) === 0) {
         throw new Error(`Sync ran but updated nothing (${detail}).${errDetail}`);
