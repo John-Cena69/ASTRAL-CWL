@@ -89,17 +89,16 @@ export async function syncWars(): Promise<{
       // Original bot flips the global sync once when the toggle clan's war
       // ends. Fixed here: only flip when no final result is stored yet
       // (the old code compared against "won"/"lost" but stores "Win"/"Loss",
-      // so it flipped on EVERY poll while warEnded).
+      // so it flipped on EVERY poll while warEnded). The setting is written
+      // only after the war row below succeeds, so a failed upsert can never
+      // cause a flip on every subsequent run.
+      let effectiveSync = syncState;
+      let flippedThisWar = false;
       if (tag.toUpperCase() === TOGGLE_CLAN && war.state === 'warEnded') {
         const alreadyFinal = !!existing?.[0] && isFinalResult(existing[0].war_result);
         if (!alreadyFinal) {
-          syncState = syncState === 'High' ? 'Low' : 'High';
-          syncFlipped = true;
-          const { error: syncError } = await supabase
-            .from('bot_settings')
-            .update({ setting_value: syncState })
-            .eq('setting_key', 'fwa_sync_state');
-          if (syncError) throw new Error(syncError.message);
+          effectiveSync = syncState === 'High' ? 'Low' : 'High';
+          flippedThisWar = true;
         }
       }
 
@@ -111,7 +110,7 @@ export async function syncWars(): Promise<{
         opponentPoints,
         war.clan.tag,
         war.opponent.tag,
-        syncState
+        effectiveSync
       );
 
       const row = {
@@ -127,7 +126,7 @@ export async function syncWars(): Promise<{
         attacks_used: war.clan.attacks,
         our_points: ourPoints,
         opponent_points: opponentPoints,
-        sync_used: syncState,
+        sync_used: effectiveSync,
         war_result: warResult,
         opponent_stars: war.opponent.stars,
         opponent_attacks_used: war.opponent.attacks,
@@ -143,6 +142,15 @@ export async function syncWars(): Promise<{
           .eq('clan_tag', tag)
           .eq('end_time', endTime);
         if (updateError) throw new Error(updateError.message);
+      }
+      if (flippedThisWar) {
+        syncState = effectiveSync;
+        syncFlipped = true;
+        const { error: syncError } = await supabase
+          .from('bot_settings')
+          .update({ setting_value: syncState })
+          .eq('setting_key', 'fwa_sync_state');
+        if (syncError) throw new Error(syncError.message);
       }
       upserted++;
     } catch (error) {
