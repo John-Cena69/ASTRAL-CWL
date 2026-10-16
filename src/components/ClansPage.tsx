@@ -86,6 +86,7 @@ export default function ClansPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -180,7 +181,7 @@ export default function ClansPage() {
     }
   };
   const handleDelete = async (clanTag: string) => {
-    if (!window.confirm(`Remove ${clanTag} from the CWL directory?`)) return;
+    setPendingDelete(null);
     setDeletingTag(clanTag);
     setError(null);
     setMessage(null);
@@ -290,7 +291,7 @@ export default function ClansPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => void handleDelete(clan.clan_tag)}
+                  onClick={() => { setPendingDelete(clan.clan_tag); setError(null); setMessage(null); }}
                   disabled={deletingTag === clan.clan_tag}
                   className="p-2 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded-lg shrink-0"
                   title={`Remove ${clan.clan_tag}`}
@@ -319,6 +320,41 @@ export default function ClansPage() {
               </div>
             </article>
           ))}
+        </div>
+      )}
+
+      {pendingDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Confirm removal">
+          <div
+            className="absolute inset-0 bg-space-950/70 backdrop-blur-sm"
+            onClick={() => setPendingDelete(null)}
+            aria-hidden="true"
+          />
+          <div className="relative astral-card p-6 w-full max-w-sm text-center">
+            <div className="mx-auto w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center">
+              <Trash2 className="w-6 h-6 text-rose-300" />
+            </div>
+            <h3 className="mt-4 font-display text-lg font-bold text-white">Remove clan?</h3>
+            <p className="mt-2 text-sm text-astral-200/70">
+              <span className="font-mono text-gold-300">{pendingDelete}</span> will be removed from the CWL directory. This cannot be undone.
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingDelete(null)}
+                className="astral-btn-ghost justify-center"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDelete(pendingDelete)}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/15 px-4 py-2.5 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/25"
+              >
+                <Trash2 className="w-4 h-4" /> Remove
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>
