@@ -326,11 +326,11 @@ export default function ClansPage() {
       {pendingDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Confirm removal">
           <div
-            className="absolute inset-0 bg-space-950"
+            className="absolute inset-0 bg-space-950/70 backdrop-blur-sm"
             onClick={() => setPendingDelete(null)}
             aria-hidden="true"
           />
-          <div className="relative astral-card p-6 w-full max-w-sm text-center">
+          <div className="relative bg-space-800 border border-astral-700/30 rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl shadow-space-950">
             <div className="mx-auto w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center">
               <Trash2 className="w-6 h-6 text-rose-300" />
             </div>
