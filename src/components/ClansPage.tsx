@@ -326,7 +326,7 @@ export default function ClansPage() {
       {pendingDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Confirm removal">
           <div
-            className="absolute inset-0 bg-space-950/70 backdrop-blur-sm"
+            className="absolute inset-0 bg-space-950"
             onClick={() => setPendingDelete(null)}
             aria-hidden="true"
           />
@@ -336,7 +336,10 @@ export default function ClansPage() {
             </div>
             <h3 className="mt-4 font-display text-lg font-bold text-white">Remove clan?</h3>
             <p className="mt-2 text-sm text-astral-200/70">
-              <span className="font-mono text-gold-300">{pendingDelete}</span> will be removed from the CWL directory. This cannot be undone.
+              <span className="font-semibold text-white">
+                {clans.find((clan) => clan.clan_tag === pendingDelete)?.clan_name ?? 'Unknown clan'}
+              </span>{' '}
+              <span className="font-mono text-gold-300">({pendingDelete})</span> will be removed from the CWL directory. This cannot be undone.
             </p>
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button
