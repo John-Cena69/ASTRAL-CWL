@@ -9,6 +9,7 @@ import {
   Shield,
   Star,
   Swords,
+  X,
 } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 
@@ -354,14 +355,32 @@ export default function WarsPage() {
       {error && (
         <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200">
           <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-          <p className="text-sm">{error}</p>
+          <p className="text-sm flex-1">{error}</p>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="p-1 rounded-lg opacity-60 hover:opacity-100 hover:bg-white/10 transition shrink-0"
+            title="Dismiss"
+            aria-label="Dismiss error"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
       {notice && !error && (
         <div className="flex items-start gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-200">
           <Check className="w-5 h-5 flex-shrink-0 mt-0.5" />
-          <p className="text-sm">{notice}</p>
+          <p className="text-sm flex-1">{notice}</p>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="p-1 rounded-lg opacity-60 hover:opacity-100 hover:bg-white/10 transition shrink-0"
+            title="Dismiss"
+            aria-label="Dismiss notification"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 

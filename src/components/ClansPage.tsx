@@ -157,7 +157,16 @@ export default function ClansPage() {
       {(error || message) && (
         <div className={`p-4 rounded-xl border text-sm flex items-start gap-3 ${error ? 'bg-rose-500/10 border-rose-500/30 text-rose-200' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'}`}>
           {error && <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />}
-          <p>{error || message}</p>
+          <p className="flex-1">{error || message}</p>
+          <button
+            type="button"
+            onClick={() => { setError(null); setMessage(null); }}
+            className="p-1 rounded-lg opacity-60 hover:opacity-100 hover:bg-white/10 transition shrink-0"
+            title="Dismiss"
+            aria-label="Dismiss notification"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
