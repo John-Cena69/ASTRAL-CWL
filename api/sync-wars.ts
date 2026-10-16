@@ -19,6 +19,7 @@ export async function syncWars(): Promise<{
   checked: number;
   upserted: number;
   skipped: number;
+  skipDetail: string;
   syncFlipped: boolean;
   errors: string[];
 }> {
@@ -40,6 +41,8 @@ export async function syncWars(): Promise<{
   let checked = 0;
   let upserted = 0;
   let skipped = 0;
+  let notInWar = 0;
+  let privateLog = 0;
   const errors: string[] = [];
 
   for (const tag of familyTags) {
@@ -50,14 +53,16 @@ export async function syncWars(): Promise<{
     } catch (error) {
       if (error instanceof PrivateWarLog) {
         skipped++;
+        privateLog++;
         continue;
       }
-      if (error instanceof CocMaintenance) return { checked, upserted, skipped, syncFlipped, errors };
+      if (error instanceof CocMaintenance) return { checked, upserted, skipped, skipDetail: `notInWar=${notInWar} privateLog=${privateLog}`, syncFlipped, errors };
       errors.push(`${tag}: ${(error as Error).message.slice(0, 160)}`);
       continue;
     }
     if (!war) {
       skipped++;
+      notInWar++;
       continue;
     }
 
@@ -143,7 +148,7 @@ export async function syncWars(): Promise<{
     }
   }
 
-  return { checked, upserted, skipped, syncFlipped, errors: errors.slice(0, 10) };
+  return { checked, upserted, skipped, skipDetail: `notInWar=${notInWar} privateLog=${privateLog}`, syncFlipped, errors: errors.slice(0, 10) };
 }
 
 export default async function handler(req: unknown, res: {
