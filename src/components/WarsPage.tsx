@@ -244,8 +244,19 @@ export default function WarsPage() {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      const body = (await response.json().catch(() => ({}))) as { error?: string; upserted?: number };
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        upserted?: number;
+        checked?: number;
+        skipped?: number;
+        errors?: string[];
+      };
       if (!response.ok) throw new Error(body.error || `Sync failed (HTTP ${response.status}).`);
+      const detail = `checked ${body.checked ?? '?'} clan(s), skipped ${body.skipped ?? '?'}`;
+      const errDetail = body.errors?.length ? ` Issues: ${body.errors.join(' | ').slice(0, 400)}` : '';
+      if ((body.upserted ?? 0) === 0) {
+        throw new Error(`Sync ran but updated nothing (${detail}).${errDetail}`);
+      }
       setNotice(`Synced ${body.upserted ?? 0} war(s) from the CoC API.`);
       await loadWars();
     } catch (err) {
