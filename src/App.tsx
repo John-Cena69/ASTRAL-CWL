@@ -12,17 +12,19 @@ import {
   X,
   LogIn,
   LogOut,
-  Swords,
+  Menu,
 } from 'lucide-react';
 import type { User } from '@supabase/supabase-js';
 import Starfield from '@/components/Starfield';
+import Sidebar from '@/components/Sidebar';
 import ClanTable from '@/components/ClanTable';
+import ClansPage from '@/components/ClansPage';
 import AccountsPage from '@/components/AccountsPage';
 import WarsPage from '@/components/WarsPage';
 import { DEFAULT_COLUMNS } from '@/columns';
 import { fetchClansFromSheet } from '@/sheetsFetcher';
 import { supabase } from '@/supabaseClient';
-import type { Clan, ColumnConfig, ColumnKey, SortState } from '@/types';
+import type { Clan, ColumnConfig, ColumnKey, PageKey, SortState } from '@/types';
 import { buildAllMissingMentions } from '@/discordMentions';
 
 const DEFAULT_SHEET_URL =
@@ -47,7 +49,12 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [showProfile, setShowProfile] = useState(false);
   const [copiedMissing, setCopiedMissing] = useState(false);
-  const [activePage, setActivePage] = useState<'roster' | 'accounts' | 'wars'>('roster');
+  const [activePage, setActivePage] = useState<PageKey>('roster');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (window.matchMedia('(min-width: 1024px)').matches) setSidebarOpen(true);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -267,11 +274,29 @@ export default function App() {
   return (
     <div className="min-h-screen relative">
       <Starfield />
+      <Sidebar
+        open={sidebarOpen}
+        activePage={activePage}
+        onNavigate={(page) => {
+          setActivePage(page);
+          setSidebarOpen(false);
+        }}
+        onClose={() => setSidebarOpen(false)}
+      />
 
       <header className="relative z-10 border-b border-astral-700/20 bg-space-900/40 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSidebarOpen((open) => !open)}
+                className="astral-btn-ghost p-2"
+                title="Open menu"
+                aria-label="Open menu"
+                aria-expanded={sidebarOpen}
+              >
+                <Menu className="w-5 h-5" />
+              </button>
               <div className="relative w-11 h-11 rounded-xl bg-gradient-to-br from-astral-500 to-astral-700 flex items-center justify-center shadow-lg shadow-astral-900/50">
                 <Sparkles className="w-6 h-6 text-gold-300" />
                 <div className="absolute inset-0 rounded-xl border border-gold-400/20 animate-glow" />
@@ -283,12 +308,6 @@ export default function App() {
                 <p className="text-xs text-astral-300/60">Astral War Roster Manager</p>
               </div>
             </div>
-
-            <nav className="flex items-center gap-1" aria-label="Main navigation">
-              <button onClick={() => setActivePage('roster')} className={`astral-btn-ghost text-sm ${activePage === 'roster' ? 'border-gold-400/50 text-gold-300' : ''}`}>Roster</button>
-              <button onClick={() => setActivePage('accounts')} className={`astral-btn-ghost text-sm ${activePage === 'accounts' ? 'border-gold-400/50 text-gold-300' : ''}`}>Accounts</button>
-              <button onClick={() => setActivePage('wars')} className={`astral-btn-ghost text-sm ${activePage === 'wars' ? 'border-gold-400/50 text-gold-300' : ''}`}><Swords className="w-4 h-4" /> Wars</button>
-            </nav>
 
             <div className="relative">
               <button
@@ -355,7 +374,7 @@ export default function App() {
         </section>
       )}
 
-      {activePage === 'accounts' ? <AccountsPage /> : activePage === 'wars' ? <WarsPage /> : <>
+      {activePage === 'accounts' ? <AccountsPage /> : activePage === 'wars' ? <WarsPage /> : activePage === 'clans' ? <ClansPage /> : <>
 
       {/* Toolbar */}
       <div className="relative z-30 sticky top-0 bg-space-900/80 backdrop-blur-md border-b border-astral-700/20 overflow-visible">

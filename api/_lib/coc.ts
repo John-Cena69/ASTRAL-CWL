@@ -104,6 +104,19 @@ export async function getCurrentWar(clanTag: string): Promise<CocWar | null> {
   return body;
 }
 
+export interface CocClan {
+  tag: string;
+  name: string;
+  badgeUrls?: { small?: string; medium?: string; large?: string };
+  warLeague?: { name: string };
+  memberList?: { tag: string; name: string; role: string }[];
+}
+
+/** Full clan profile (used by the Clans directory to auto-fill on add). */
+export async function getClan(tag: string): Promise<CocClan> {
+  return (await request(`/clans/${tagParam(tag)}`)) as CocClan;
+}
+
 /** "20250101T120000.000Z" -> unix seconds (0 when missing/unparseable). */
 export function toUnixSeconds(value?: string): number {
   if (!value) return 0;

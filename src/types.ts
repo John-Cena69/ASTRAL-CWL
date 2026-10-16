@@ -24,6 +24,8 @@ export type ColumnKey =
   | 'homeClan'
   | 'status';
 
+export type PageKey = 'roster' | 'accounts' | 'wars' | 'clans';
+
 export interface ColumnConfig {
   key: ColumnKey;
   label: string;
