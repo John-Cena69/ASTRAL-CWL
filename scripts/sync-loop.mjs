@@ -42,7 +42,7 @@ async function runOnce() {
     const fillers = body.fillers ?? {};
     console.log(
       `[${new Date().toLocaleTimeString()}] ok (${Date.now() - started}ms): ` +
-        `wars upserted=${wars.upserted ?? '?'} checked=${wars.checked ?? '?'} skipped=${wars.skipped ?? '?'}, ` +
+        `wars upserted=${wars.upserted ?? '?'} checked=${wars.checked ?? '?'} skipped=${wars.skipped ?? '?'}${wars.skipDetail ? ` (${wars.skipDetail})` : ''}, ` +
         `fillers updated=${fillers.updated ?? '?'}${wars.syncFlipped ? ' SYNC-FLIPPED' : ''}` +
         `${(wars.errors ?? []).length || (fillers.errors ?? []).length ? ` errors=${JSON.stringify([...(wars.errors ?? []), ...(fillers.errors ?? [])]).slice(0, 300)}` : ''}`
     );
