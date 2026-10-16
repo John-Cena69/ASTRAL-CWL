@@ -220,24 +220,54 @@ export default function WarsPage() {
     setSyncSaving(true);
     setError(null);
     setNotice(null);
-    const { data: updated, error: updateError } = await supabase
-      .from('bot_settings')
-      .update({ setting_value: nextState })
-      .eq('setting_key', 'fwa_sync_state')
-      .select('setting_value')
-      .maybeSingle();
-    if (updateError) {
-      setError(updateError.message);
-    } else if (!updated || updated.setting_value !== nextState) {
-      setError(
-        'The change was blocked before reaching the database (0 rows updated). ' +
-          'This is a row-security policy issue, not your login — tell me you see this exact message.'
-      );
-    } else {
-      setSyncState(nextState);
-      setNotice(`FWA sync saved as ${nextState} — determinations below update immediately.`);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error('Your login session expired. Sign out and back in.');
+
+      // Primary path: privileged backend save (works regardless of row policies).
+      let saved = false;
+      try {
+        const response = await fetch('/api/sync-settings', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ setting_key: 'fwa_sync_state', setting_value: nextState }),
+        });
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        if (!response.ok) throw new Error(body.error || `Save failed (HTTP ${response.status}).`);
+        saved = true;
+      } catch (apiError) {
+        // No /api under plain "npm run dev" — fall back to a direct write.
+        if (
+          !(apiError instanceof TypeError) &&
+          !(apiError instanceof Error && apiError.message.includes('Failed to fetch'))
+        ) {
+          throw apiError;
+        }
+        const { data: updated, error: updateError } = await supabase
+          .from('bot_settings')
+          .update({ setting_value: nextState })
+          .eq('setting_key', 'fwa_sync_state')
+          .select('setting_value')
+          .maybeSingle();
+        if (updateError) throw new Error(updateError.message);
+        if (!updated || updated.setting_value !== nextState) {
+          throw new Error(
+            'The change was blocked before reaching the database (0 rows updated). Deploy the site (or run "npx vercel dev") so the backend save path is available.'
+          );
+        }
+        saved = true;
+      }
+
+      if (saved) {
+        setSyncState(nextState);
+        setNotice(`FWA sync saved as ${nextState} — determinations below update immediately.`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed.');
+    } finally {
+      setSyncSaving(false);
     }
-    setSyncSaving(false);
   };
 
   const syncNow = async () => {
