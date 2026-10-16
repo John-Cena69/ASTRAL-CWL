@@ -220,12 +220,20 @@ export default function WarsPage() {
     setSyncSaving(true);
     setError(null);
     setNotice(null);
-    const { error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabase
       .from('bot_settings')
       .update({ setting_value: nextState })
-      .eq('setting_key', 'fwa_sync_state');
-    if (updateError) setError(updateError.message);
-    else {
+      .eq('setting_key', 'fwa_sync_state')
+      .select('setting_value')
+      .maybeSingle();
+    if (updateError) {
+      setError(updateError.message);
+    } else if (!updated || updated.setting_value !== nextState) {
+      setError(
+        'The change was blocked before reaching the database (0 rows updated). ' +
+          'This is a row-security policy issue, not your login — tell me you see this exact message.'
+      );
+    } else {
       setSyncState(nextState);
       setNotice(`FWA sync saved as ${nextState} — determinations below update immediately.`);
     }
