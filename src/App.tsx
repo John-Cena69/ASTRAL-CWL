@@ -241,13 +241,13 @@ export default function App() {
       <div className="min-h-screen relative flex items-center justify-center px-4">
         <Starfield />
         <main className="relative z-10 w-full max-w-md astral-card p-8 text-center">
-          <div className="mx-auto mb-5 relative w-14 h-14 rounded-xl bg-gradient-to-br from-astral-500 to-astral-700 flex items-center justify-center shadow-lg shadow-astral-900/50">
-            <Sparkles className="w-7 h-7 text-gold-300" />
-            <div className="absolute inset-0 rounded-xl border border-gold-400/20 animate-glow" />
+          <div className="mx-auto mb-5 relative w-14 h-14">
+            <img src="/astral.png" alt="Astral logo" className="w-14 h-14 rounded-xl object-contain shadow-lg shadow-astral-900/50" />
+            <div className="absolute inset-0 rounded-xl border border-gold-400/20 animate-glow pointer-events-none" />
           </div>
-          <h1 className="font-display text-2xl font-bold gold-text">CWL Utility</h1>
+          <h1 className="font-display text-2xl font-bold gold-text">Astral Management</h1>
           <p className="mt-2 text-sm text-astral-200/70">
-            Authorize with Discord to access the Astral War Roster Manager.
+            Authorize with Discord to access Astral Management.
           </p>
           <button
             onClick={handleDiscordLogin}
@@ -297,15 +297,14 @@ export default function App() {
               >
                 <Menu className="w-5 h-5" />
               </button>
-              <div className="relative w-11 h-11 rounded-xl bg-gradient-to-br from-astral-500 to-astral-700 flex items-center justify-center shadow-lg shadow-astral-900/50">
-                <Sparkles className="w-6 h-6 text-gold-300" />
-                <div className="absolute inset-0 rounded-xl border border-gold-400/20 animate-glow" />
+              <div className="relative w-11 h-11">
+                <img src="/astral.png" alt="Astral logo" className="w-11 h-11 rounded-xl object-contain shadow-lg shadow-astral-900/50" />
+                <div className="absolute inset-0 rounded-xl border border-gold-400/20 animate-glow pointer-events-none" />
               </div>
               <div>
                 <h1 className="font-display text-xl sm:text-2xl font-bold gold-text leading-tight">
-                  CWL Utility
+                  Astral Management
                 </h1>
-                <p className="text-xs text-astral-300/60">Astral War Roster Manager</p>
               </div>
             </div>
 
@@ -562,7 +561,7 @@ export default function App() {
       {/* Footer */}
       <footer className="relative z-10 border-t border-astral-700/20 bg-space-900/40 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 text-center text-xs text-astral-300/40">
-          CWL Utility · Astral War Roster Manager · Data from Google Sheets
+          Astral Management · Data from Google Sheets & the CoC API
         </div>
       </footer>
       </>}
