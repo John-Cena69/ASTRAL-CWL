@@ -44,7 +44,10 @@ async function request(path: string, retries = 1): Promise<unknown> {
       'CoC API key rejected this server IP. If COC_API_BASE_URL is the official API, switch it to the proxy URL (see api/_lib/coc.ts header).'
     );
   }
-  if (response.status === 403) throw new PrivateWarLog(`Private war log: ${path}`);
+  if (response.status === 403) {
+    const reason = [body.reason, body.message].filter(Boolean).join(' ').slice(0, 160);
+    throw new PrivateWarLog(`${path}: ${reason || 'forbidden'}`);
+  }
   if (response.status === 404) throw new CocNotFound(`Not found: ${path}`);
   if (!response.ok) {
     throw new Error(`CoC API error ${response.status}: ${JSON.stringify(body).slice(0, 200)}`);

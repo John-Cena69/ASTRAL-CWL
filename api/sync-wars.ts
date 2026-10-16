@@ -43,6 +43,7 @@ export async function syncWars(): Promise<{
   let skipped = 0;
   let notInWar = 0;
   let privateLog = 0;
+  let privateLogSample = '';
   const errors: string[] = [];
 
   for (const tag of familyTags) {
@@ -54,9 +55,10 @@ export async function syncWars(): Promise<{
       if (error instanceof PrivateWarLog) {
         skipped++;
         privateLog++;
+        if (!privateLogSample) privateLogSample = error.message.replace(/^\/clans\/[^:]+:\s*/, '').slice(0, 120);
         continue;
       }
-      if (error instanceof CocMaintenance) return { checked, upserted, skipped, skipDetail: `notInWar=${notInWar} privateLog=${privateLog}`, syncFlipped, errors };
+      if (error instanceof CocMaintenance) return { checked, upserted, skipped, skipDetail: `notInWar=${notInWar} privateLog=${privateLog}${privateLogSample ? ` (${privateLogSample})` : ''}`, syncFlipped, errors };
       errors.push(`${tag}: ${(error as Error).message.slice(0, 160)}`);
       continue;
     }
@@ -148,7 +150,7 @@ export async function syncWars(): Promise<{
     }
   }
 
-  return { checked, upserted, skipped, skipDetail: `notInWar=${notInWar} privateLog=${privateLog}`, syncFlipped, errors: errors.slice(0, 10) };
+  return { checked, upserted, skipped, skipDetail: `notInWar=${notInWar} privateLog=${privateLog}${privateLogSample ? ` (${privateLogSample})` : ''}`, syncFlipped, errors: errors.slice(0, 10) };
 }
 
 export default async function handler(req: unknown, res: {
