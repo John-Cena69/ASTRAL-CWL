@@ -9,7 +9,7 @@ import { adminClient, authorize, readJsonBody } from './_lib/backend.js';
 function normalizeTag(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const clean = value.trim().toUpperCase().replace(/^#+/, '');
-  if (!/^[0289CGJLPUVY]+$/.test(clean) || clean.length < 3) return null;
+  if (!/^[0289CGJLPUVQRY]+$/.test(clean) || clean.length < 3) return null;
   return `#${clean}`;
 }
 
@@ -33,7 +33,7 @@ export default async function handler(req: unknown, res: {
 
   const tag = normalizeTag(readJsonBody(r).clan_tag);
   if (!tag) {
-    res.status(400).json({ ok: false, error: 'Provide a valid clan tag (letters 0289CGJLPUVY only).' });
+    res.status(400).json({ ok: false, error: 'Provide a valid clan tag.' });
     return;
   }
 
