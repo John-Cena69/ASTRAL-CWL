@@ -26,6 +26,59 @@ function normalizeTagInput(value: string): string {
   return `#${value.trim().toUpperCase().replace(/^#+/, '')}`;
 }
 
+// League badge files in /public: bronze1-3, silver1-3, ..., titan1-3, legend.
+// In-game, League III shows 1 bar and League I shows 3, so the file number is
+// the pip count, not the numeral (e.g. "Gold League I" -> gold3.webp).
+const LEAGUE_PIPS: Record<string, number> = { i: 3, ii: 2, iii: 1 };
+
+function leagueBadgeSrc(league: string | null): string | null {
+  if (!league || league.trim().toLowerCase().includes('unrank')) return '/unranked.webp';
+  const lower = league.trim().toLowerCase();
+  if (lower.includes('legend')) return '/legend.webp';
+  const base = ['bronze', 'silver', 'gold', 'crystal', 'master', 'champion', 'titan'].find((b) =>
+    lower.includes(b)
+  );
+  if (!base) return null;
+  const numeral = lower.match(/\b(i{1,3})$/);
+  if (!numeral) return null;
+  const pips = LEAGUE_PIPS[numeral[1]];
+  if (!pips) return null;
+  return `/${base}${pips}.webp`;
+}
+
+// Sort: Unranked first, then Legend, then Champion 1 -> 2 -> 3, Titan, Master,
+// Crystal, Gold, Silver, Bronze. Name breaks ties.
+const TIER_ORDER: Record<string, number> = {
+  legend: 0,
+  champion: 1,
+  titan: 2,
+  master: 3,
+  crystal: 4,
+  gold: 5,
+  silver: 6,
+  bronze: 7,
+};
+const NUMERAL_ORDER: Record<string, number> = { i: 0, ii: 1, iii: 2 };
+
+function leagueRank(league: string | null): number {
+  if (!league || league.trim().toLowerCase().includes('unrank')) return -1;
+  const lower = league.trim().toLowerCase();
+  if (lower.includes('legend')) return TIER_ORDER.legend;
+  const base = Object.keys(TIER_ORDER).find((tier) => tier !== 'legend' && lower.includes(tier));
+  if (!base) return 999;
+  const numeral = lower.match(/\b(i{1,3})$/);
+  const numeralRank = numeral ? NUMERAL_ORDER[numeral[1]] ?? 3 : 3;
+  return TIER_ORDER[base] * 10 + numeralRank;
+}
+
+function sortClans(clans: CwlClan[]): CwlClan[] {
+  return [...clans].sort(
+    (a, b) =>
+      leagueRank(a.cwl_league) - leagueRank(b.cwl_league) ||
+      (a.clan_name ?? '').localeCompare(b.clan_name ?? '')
+  );
+}
+
 export default function ClansPage() {
   const [clans, setClans] = useState<CwlClan[]>([]);
   const [tagInput, setTagInput] = useState('');
@@ -46,10 +99,9 @@ export default function ClansPage() {
     setError(null);
     const { data, error: loadError } = await supabase
       .from('cwl_clans')
-      .select('clan_tag, clan_name, cwl_league, leader_name, badge_url')
-      .order('clan_name');
+      .select('clan_tag, clan_name, cwl_league, leader_name, badge_url');
     if (loadError) setError(loadError.message);
-    else setClans((data ?? []) as CwlClan[]);
+    else setClans(sortClans((data ?? []) as CwlClan[]));
     setLoading(false);
   };
 
@@ -200,7 +252,12 @@ export default function ClansPage() {
                   <p className="text-xs text-gold-400/80 font-mono truncate">{clan.clan_tag}</p>
                   {clan.cwl_league && (
                     <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-gold-400/30 bg-gold-500/10 px-2.5 py-1 text-xs font-medium text-gold-300">
-                      <Trophy className="w-3.5 h-3.5" /> {clan.cwl_league}
+                      {leagueBadgeSrc(clan.cwl_league) ? (
+                        <img src={leagueBadgeSrc(clan.cwl_league) as string} alt="" className="w-4 h-4 object-contain" />
+                      ) : (
+                        <Trophy className="w-3.5 h-3.5" />
+                      )}
+                      {clan.cwl_league}
                     </span>
                   )}
                 </div>
