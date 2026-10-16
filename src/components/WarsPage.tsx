@@ -135,7 +135,7 @@ function getGameTemplate(opponentName: string, isWin: boolean) {
     ? `💎Win War vs ${opponentName}✅
 ▪️1st Attack: 3 star your mirror.
 ▪️2nd Attack: 1 or 2 star any base anytime. If not, please wait for the "Last 12 hours of clean up time" to 3 star any base. ⚠️Ask for any doubts.`
-    : `💎Lose War vs ${opponentName}❌
+    : `💎Win War vs ${opponentName}❌
 ▪️1st Attack: 2 star your mirror.
 ▪️2nd Attack: 1 star any base anytime. If not, please wait for the "Last 12 hours of clean up time" to 2 star any base. ⚠️Ask for any doubts.`;
 }
@@ -150,11 +150,38 @@ function isLossResult(result: string | null) {
   return normalizedResult.includes('loss') || normalizedResult.includes('lose') || normalizedResult.includes('lost') || normalizedResult.includes('defeat');
 }
 
+/** Same tiebreak as the backend: points decide, equal points fall back to tag order + sync state. */
+function calculatePreviewResult(
+  ourPoints: number | null,
+  opponentPoints: number | null,
+  ourTag: string | null,
+  opponentTag: string | null,
+  syncState: 'Low' | 'High'
+): string | null {
+  if (ourPoints === null || opponentPoints === null || !ourTag || !opponentTag) return null;
+  if (ourPoints > opponentPoints) return 'Win';
+  if (ourPoints < opponentPoints) return 'Loss';
+  const t1 = ourTag.replace(/#/g, '');
+  const t2 = opponentTag.replace(/#/g, '');
+  if (syncState === 'Low') return t1 < t2 ? 'Win' : 'Loss';
+  return t1 > t2 ? 'Win' : 'Loss';
+}
+
+function syncErrorHint(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Sync failed.';
+  if (message.includes('Failed to fetch') || message.includes('Load failed')) {
+    return `${message} (Sync needs the deployed site or "npx vercel dev" — plain "npm run dev" has no /api.)`;
+  }
+  return message;
+}
+
 export default function WarsPage() {
   const [wars, setWars] = useState<FamilyWar[]>([]);
   const [clans, setClans] = useState<Map<string, FamilyClan>>(new Map());
   const [syncState, setSyncState] = useState<'Low' | 'High'>('Low');
   const [syncSaving, setSyncSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -192,17 +219,46 @@ export default function WarsPage() {
     if (!supabase || nextState === syncState) return;
     setSyncSaving(true);
     setError(null);
+    setNotice(null);
     const { error: updateError } = await supabase
       .from('bot_settings')
       .update({ setting_value: nextState })
       .eq('setting_key', 'fwa_sync_state');
     if (updateError) setError(updateError.message);
-    else setSyncState(nextState);
+    else {
+      setSyncState(nextState);
+      setNotice(`FWA sync saved as ${nextState} — determinations below update immediately.`);
+    }
     setSyncSaving(false);
+  };
+
+  const syncNow = async () => {
+    if (!supabase || syncing) return;
+    setSyncing(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const response = await fetch('/api/sync-wars', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string; upserted?: number };
+      if (!response.ok) throw new Error(body.error || `Sync failed (HTTP ${response.status}).`);
+      setNotice(`Synced ${body.upserted ?? 0} war(s) from the CoC API.`);
+      await loadWars();
+    } catch (err) {
+      setError(syncErrorHint(err));
+    } finally {
+      setSyncing(false);
+    }
   };
 
   useEffect(() => {
     void loadWars();
+    const refreshTimer = window.setInterval(() => void loadWars(), 60_000);
+    return () => window.clearInterval(refreshTimer);
   }, []);
 
   return (
@@ -238,6 +294,10 @@ export default function WarsPage() {
           <button onClick={() => void loadWars()} className="astral-btn-ghost" title="Refresh wars">
             <RefreshCw className="w-4 h-4" /> Refresh
           </button>
+          <button onClick={() => void syncNow()} disabled={syncing} className="astral-btn-ghost" title="Fetch latest wars from the CoC API">
+            {syncing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            {syncing ? 'Syncing...' : 'Sync now'}
+          </button>
         </div>
       </div>
 
@@ -245,6 +305,13 @@ export default function WarsPage() {
         <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200">
           <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
           <p className="text-sm">{error}</p>
+        </div>
+      )}
+
+      {notice && !error && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-200">
+          <Check className="w-5 h-5 flex-shrink-0 mt-0.5" />
+          <p className="text-sm">{notice}</p>
         </div>
       )}
 
@@ -264,8 +331,10 @@ export default function WarsPage() {
           {wars.map((war) => {
             const clan = war.clan_tag ? clans.get(war.clan_tag) : undefined;
             const stateKey = war.state ?? '';
-            const winTemplate = isWinResult(war.war_result);
-            const hasTemplate = winTemplate || isLossResult(war.war_result);
+            const result = calculatePreviewResult(war.our_points, war.opponent_points, war.clan_tag, war.opponent_tag, syncState) ?? war.war_result;
+            const winTemplate = isWinResult(result);
+            const hasTemplate = winTemplate || isLossResult(result);
+            const warSync = war.sync_used === 'High' || war.sync_used === 'Low' ? war.sync_used : syncState;
             return (
               <article key={war.id} className="astral-card overflow-hidden">
                 <div className="p-5 border-b border-astral-700/30">
@@ -323,11 +392,11 @@ export default function WarsPage() {
                     </div>
                     <div className="px-3">
                       <p className="text-[11px] uppercase tracking-wide text-astral-300/50">Determination</p>
-                      <div className="mt-1"><Determination result={war.war_result} /></div>
+                      <div className="mt-1"><Determination result={result} /></div>
                     </div>
                     <div className="pl-3">
                       <p className="text-[11px] uppercase tracking-wide text-astral-300/50">Sync</p>
-                      <p className={`mt-1 text-sm font-semibold ${syncState === 'High' ? 'text-emerald-300' : 'text-rose-300'}`}>{syncState}</p>
+                      <p className={`mt-1 text-sm font-semibold ${warSync === 'High' ? 'text-emerald-300' : 'text-rose-300'}`} title={war.sync_used && war.sync_used !== syncState ? `Synced as ${war.sync_used}; global is now ${syncState}` : `Sync state used for this war: ${warSync}`}>{warSync}</p>
                     </div>
                   </div>
 

@@ -43,6 +43,7 @@ export default function AccountsPage() {
   const [townHallFilter, setTownHallFilter] = useState('');
   const [sortState, setSortState] = useState<SortState>({ column: 'clan', direction: 'asc' });
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
   const [editingTag, setEditingTag] = useState<string | null>(null);
@@ -171,6 +172,34 @@ export default function AccountsPage() {
     setSaving(false);
   };
 
+  const handleSync = async () => {
+    if (!supabase || syncing) return;
+    setSyncing(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const response = await fetch('/api/sync-fillers', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string; updated?: number };
+      if (!response.ok) throw new Error(body.error || `Sync failed (HTTP ${response.status}).`);
+      setMessage(`Synced ${body.updated ?? 0} account(s) from the CoC API.`);
+      await loadAccounts();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Sync failed.';
+      setError(
+        message.includes('Failed to fetch') || message.includes('Load failed')
+          ? `${message} (Sync needs the deployed site or "npx vercel dev" — plain "npm run dev" has no /api.)`
+          : message
+      );
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleDelete = async (playerTag: string) => {
     if (!supabase || !window.confirm(`Delete ${playerTag}?`)) return;
 
@@ -256,6 +285,10 @@ export default function AccountsPage() {
           </button>
           <button onClick={() => void loadAccounts()} className="astral-btn-ghost" title="Refresh accounts">
             <RefreshCw className="w-4 h-4" /> Refresh
+          </button>
+          <button onClick={() => void handleSync()} disabled={syncing} className="astral-btn-ghost" title="Fetch latest player data from the CoC API">
+            {syncing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            {syncing ? 'Syncing...' : 'Sync from CoC'}
           </button>
         </div>
       </div>
