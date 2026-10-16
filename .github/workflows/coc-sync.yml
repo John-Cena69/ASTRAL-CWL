@@ -31,7 +31,8 @@ jobs:
     steps:
       - name: Trigger site sync
         run: |
-          code=$(curl -s -o /tmp/sync.json -w '%{http_code}' -X POST "$SYNC_URL/api/sync" \
+          base="${SYNC_URL%/}"
+          code=$(curl -sL --max-redirs 3 -o /tmp/sync.json -w '%{http_code}' -X POST "$base/api/sync" \
             -H "x-cron-secret: $CRON_SECRET" -H 'Content-Type: application/json')
           cat /tmp/sync.json
           echo "HTTP $code"
