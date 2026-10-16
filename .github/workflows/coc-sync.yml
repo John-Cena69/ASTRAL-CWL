@@ -1,0 +1,41 @@
+# Runs the CoC sync every 5 minutes. Lives in this repo — no separate bot project.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   SYNC_URL     e.g. https://your-app.vercel.app  (production URL, no trailing slash)
+#   CRON_SECRET  same value as the CRON_SECRET env var set in Vercel
+#
+# Required Vercel env vars (Project Settings -> Environment Variables):
+#   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+#   SUPABASE_ANON_KEY (or VITE_SUPABASE_ANON_KEY)
+#   COC_API_KEY            (official key whitelisted to the proxy IP, see below)
+#   COC_API_BASE_URL       (optional, defaults to the no-static-IP proxy)
+#   FWA_SPREADSHEET_ID     (the sheet holding the "FWA Points" tab)
+#   FWA_POINTS_GID         (gid of the "FWA Points" tab, defaults to 0)
+#   CRON_SECRET            (long random string, shared with SYNC_URL caller)
+#
+# No-static-IP setup (do once):
+#   1. Log in at developer.clashofclans.com, create a key, and whitelist the
+#      proxy IP shown in the proxy docs (NOT your own IP).
+#   2. Paste that key as COC_API_KEY in Vercel. Vercel's dynamic IPs no longer
+#      matter because the API only ever sees the proxy's whitelisted IP.
+name: CoC sync
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger site sync
+        run: |
+          code=$(curl -s -o /tmp/sync.json -w '%{http_code}' -X POST "$SYNC_URL/api/sync" \
+            -H "x-cron-secret: $CRON_SECRET" -H 'Content-Type: application/json')
+          cat /tmp/sync.json
+          echo "HTTP $code"
+          test "$code" = "200"
+        env:
+          SYNC_URL: ${{ secrets.SYNC_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
