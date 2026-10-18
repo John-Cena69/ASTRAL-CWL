@@ -256,6 +256,20 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
       return;
     }
 
+    // Ensure the clan exists in family_clans (foreign key parent)
+    const { data: existingClan, error: clanSelectError } = await supabase
+      .from('family_clans')
+      .select('clan_tag')
+      .eq('clan_tag', clanTag)
+      .maybeSingle();
+    if (clanSelectError) throw new Error(clanSelectError.message);
+    if (!existingClan) {
+      const { error: clanInsertError } = await supabase
+        .from('family_clans')
+        .insert({ clan_tag: clanTag, clan_name: clan.name });
+      if (clanInsertError) throw new Error(clanInsertError.message);
+    }
+
     const tags = members.map((m) => m.tag);
     const discordIdMap: Record<string, string> = {};
     try {
@@ -426,6 +440,22 @@ async function handleAddClanPlayer(req: { method?: string; url: string; headers:
 
   try {
     const supabase = adminClient();
+
+    // Ensure the clan exists in family_clans (foreign key parent)
+    const { data: existingClan, error: clanSelectError } = await supabase
+      .from('family_clans')
+      .select('clan_tag')
+      .eq('clan_tag', clanTag)
+      .maybeSingle();
+    if (clanSelectError) throw new Error(clanSelectError.message);
+    if (!existingClan) {
+      const { error: clanInsertError } = await supabase
+        .from('family_clans')
+        .insert({ clan_tag: clanTag, clan_name: clanTag });
+      if (clanInsertError) throw new Error(clanInsertError.message);
+    }
+
+    // Fetch player from CoC API
     let player;
     try {
       player = await getPlayer(playerTag);
