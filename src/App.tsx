@@ -289,7 +289,6 @@ export default function App() {
       <Sidebar
         open={sidebarOpen}
         activePage={activePage}
-        allowedRole={allowedRole}
         onNavigate={(page) => {
           setActivePage(page);
           setSidebarOpen(false);
