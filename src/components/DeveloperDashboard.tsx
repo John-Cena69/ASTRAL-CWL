@@ -137,10 +137,6 @@ export default function DeveloperDashboard() {
     return true;
   };
 
-  const selectedAccessPages = permissionClans.includes('*')
-    ? GLOBAL_PERMISSION_PAGES
-    : [...GLOBAL_PERMISSION_PAGES, ...CLAN_ACCESS_PAGES];
-
   useEffect(() => {
     const selectedClan = permissionClans.find((clan) => clan !== '*');
     const values = Object.fromEntries(
@@ -153,7 +149,7 @@ export default function DeveloperDashboard() {
       values.clan_access = effectivePermission(selectedClan, permissionRole, 'clan_access');
     }
     setPermissionAccess(values);
-  }, [accessPermissions, permissionClans, permissionRole, selectedAccessPages]);
+  }, [accessPermissions, permissionClans, permissionRole]);
 
   const selectPermissionRole = (role: string) => {
     setPermissionRole(role);
@@ -193,6 +189,10 @@ export default function DeveloperDashboard() {
       });
     }
   };
+
+  const selectedAccessPages = permissionClans.includes('*')
+    ? GLOBAL_PERMISSION_PAGES
+    : [...GLOBAL_PERMISSION_PAGES, ...CLAN_ACCESS_PAGES];
 
   const handleAdd = async (event: React.FormEvent) => {
     event.preventDefault();
