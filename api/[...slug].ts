@@ -716,6 +716,72 @@ async function handleEditWarWeight(req: { method?: string; url: string; headers:
   }
 }
 
+// POST /api/edit-war-weights — batch edit values, recalculates war_weight = value * 5
+async function handleEditWarWeights(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
+  if (req.method !== 'POST') {
+    send(res, 405, { ok: false, error: 'Use POST.' });
+    return;
+  }
+
+  const body = readJsonBody(req);
+  const clanTagRaw = String(body.clan_tag ?? '').trim();
+  const updates = Array.isArray(body.updates) ? body.updates : [];
+  if (!clanTagRaw || updates.length === 0) {
+    send(res, 400, { ok: false, error: 'Clan tag and at least one update are required.' });
+    return;
+  }
+
+  const parsedUpdates: { playerTag: string; value: number }[] = [];
+  for (const update of updates) {
+    if (!update || typeof update !== 'object') {
+      send(res, 400, { ok: false, error: 'Each update must include a player tag and value.' });
+      return;
+    }
+    const row = update as Record<string, unknown>;
+    const playerTag = `#${String(row.player_tag ?? '').trim().toUpperCase().replace(/^#+/, '')}`;
+    const value = row.value;
+    if (
+      playerTag.length < 4 ||
+      value === null ||
+      value === undefined ||
+      !Number.isInteger(value) ||
+      Number(value) < 0
+    ) {
+      send(res, 400, { ok: false, error: 'Each value must be a whole number of 0 or greater.' });
+      return;
+    }
+    parsedUpdates.push({ playerTag, value: Number(value) });
+  }
+
+  try {
+    const supabase = adminClient();
+    const clanTag = await resolveClanTag(supabase, clanTagRaw);
+    const now = new Date().toISOString();
+    let updated = 0;
+    const failed: string[] = [];
+
+    for (const update of parsedUpdates) {
+      const { data, error } = await supabase
+        .from('war_weights')
+        .update({
+          value: update.value,
+          war_weight: update.value * 5,
+          updated_date: now,
+        })
+        .eq('clan_tag', clanTag)
+        .eq('player_tag', update.playerTag)
+        .select('player_tag');
+      if (error) throw new Error(error.message);
+      if (data?.length) updated += 1;
+      else failed.push(update.playerTag);
+    }
+
+    send(res, 200, { ok: true, updated, failed });
+  } catch (error) {
+    send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Batch update failed.' });
+  }
+}
+
 // POST /api/sync — combined fillers + wars
 async function handleSync(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined> }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
   if (req.method !== 'POST' && req.method !== 'GET') {
@@ -1106,6 +1172,9 @@ export default async function handler(req: unknown, res: {
       break;
     case 'edit-war-weight':
       await handleEditWarWeight(r, res);
+      break;
+    case 'edit-war-weights':
+      await handleEditWarWeights(r, res);
       break;
     case 'sync':
       await handleSync(r, res);
