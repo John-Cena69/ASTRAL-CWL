@@ -621,8 +621,8 @@ async function handleSyncWarWeights(req: { method?: string; url: string; headers
       return;
     }
 
-    const roster = [...(war.clan as { name: string; tag: string; map_position?: number; town_hall?: number }[])]
-      .sort((a, b) => (a.map_position ?? 999) - (b.map_position ?? 999));
+    const roster = [...(war.clan.members ?? [])]
+      .sort((a, b) => (a.mapPosition ?? 999) - (b.mapPosition ?? 999));
     if (roster.length === 0) {
       send(res, 200, { ok: true, updated: 0, message: 'No roster members in war.' });
       return;
@@ -630,7 +630,7 @@ async function handleSyncWarWeights(req: { method?: string; url: string; headers
 
     const now = new Date().toISOString();
     const upserts = roster.map((member, index) => {
-      const th = member.town_hall ?? 0;
+      const th = member.townHallLevel ?? 0;
       const value = th;
       return {
         clan_tag: clanTag,
@@ -639,7 +639,7 @@ async function handleSyncWarWeights(req: { method?: string; url: string; headers
         town_hall: th,
         value,
         war_weight: value * 5,
-        map_position: index + 1,
+        map_position: member.mapPosition ?? index + 1,
         updated_date: now,
       };
     });
