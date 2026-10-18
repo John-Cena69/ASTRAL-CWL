@@ -16,9 +16,19 @@ export function adminClient(): SupabaseClient {
  * Supabase JWT belonging to a Discord user on the allowlist
  * (same get_my_allowed_role check as the frontend).
  */
+export type AuthResult =
+  | { ok: true; role?: string }
+  | { ok: false; message: string };
+
+/**
+ * Allows the request when it carries the cron secret, otherwise requires a
+ * Supabase JWT belonging to a Discord user on the allowlist
+ * (same get_my_allowed_role check as the frontend).
+ * Returns the user's role when available.
+ */
 export async function authorize(req: {
   headers: Record<string, string | string[] | undefined>;
-}): Promise<{ ok: true } | { ok: false; message: string }> {
+}): Promise<AuthResult> {
   const cronSecret = process.env.CRON_SECRET || '';
   const header = (name: string): string => {
     const value = req.headers[name];
@@ -26,14 +36,14 @@ export async function authorize(req: {
   };
 
   const supplied = header('x-cron-secret');
-  if (cronSecret && supplied && supplied === cronSecret) return { ok: true };
+  if (cronSecret && supplied && supplied === cronSecret) return { ok: true, role: 'Developer' };
 
   const authHeader = header('authorization');
   const token =
     authHeader.startsWith('Bearer ') && authHeader.slice(7) !== cronSecret
       ? authHeader.slice(7)
       : '';
-  if (cronSecret && authHeader === `Bearer ${cronSecret}`) return { ok: true };
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) return { ok: true, role: 'Developer' };
   if (!token) return { ok: false, message: 'Unauthorized.' };
   if (!URL || !ANON_KEY) return { ok: false, message: 'Server Supabase env missing.' };
 
@@ -44,7 +54,7 @@ export async function authorize(req: {
   if (error || !data) {
     return { ok: false, message: 'Forbidden: your Discord account is not allowlisted.' };
   }
-  return { ok: true };
+  return { ok: true, role: typeof data === 'string' ? data : undefined };
 }
 
 export function json(data: unknown, status = 200): { statusCode: number; body: string } {
