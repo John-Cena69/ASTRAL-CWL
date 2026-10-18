@@ -5,6 +5,7 @@ import {
   CopyIcon,
   Edit2,
   LoaderCircle,
+  Plus,
   RefreshCw,
   Save,
   Shield,
@@ -86,6 +87,11 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // Add player form state
+  const [showAddPlayer, setShowAddPlayer] = useState(false);
+  const [addPlayerTag, setAddPlayerTag] = useState('');
+  const [addingPlayer, setAddingPlayer] = useState(false);
+
   // Edit form state
   const [editTag, setEditTag] = useState('');
   const [editRole, setEditRole] = useState('');
@@ -150,6 +156,43 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
       setError(err instanceof Error ? err.message : 'Sync failed.');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const addPlayer = async () => {
+    if (!supabase || addingPlayer) return;
+    const tag = addPlayerTag.trim();
+    if (!tag) {
+      setError('Player tag is required.');
+      return;
+    }
+    setAddingPlayer(true);
+    setError(null);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const response = await fetch('/api/add-clan-player', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ clan_tag: clanTag, player_tag: tag }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(body.error || `Add failed (HTTP ${response.status}).`);
+      if (!body.ok) throw new Error(body.error || 'Add failed.');
+      setNotice(`Player added to ${clanName}.`);
+      setAddPlayerTag('');
+      setShowAddPlayer(false);
+      await loadRoster();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Add failed.');
+    } finally {
+      setAddingPlayer(false);
     }
   };
 
@@ -244,6 +287,11 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
             {syncing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             {syncing ? 'Syncing...' : 'Sync Roster'}
           </button>
+          <button
+            onClick={() => setShowAddPlayer((prev) => !prev)}
+            className="astral-btn-primary" title="Add player to roster">
+            <Plus className="w-4 h-4" /> Add Player
+          </button>
         </div>
       </div>
 
@@ -277,6 +325,45 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
             <X className="w-4 h-4" />
           </button>
         </div>
+      )}
+
+      {showAddPlayer && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void addPlayer();
+          }}
+          className="astral-card p-5 md:max-w-lg"
+        >
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-center gap-2 text-gold-300 font-medium">
+              <Plus className="w-4 h-4" /> Add Player
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAddPlayer(false)}
+              className="p-2 text-astral-300/70 hover:text-white rounded-lg" title="Close add player panel">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <label className="text-sm text-astral-200">Player Tag <span className="text-rose-300">*</span>
+            <input
+              required
+              maxLength={15}
+              value={addPlayerTag}
+              onChange={(e) => setAddPlayerTag(e.target.value.toUpperCase())}
+              placeholder="#PLAYER"
+              className="astral-input mt-1.5 w-full uppercase font-mono"
+            />
+          </label>
+          <p className="mt-2 text-xs text-astral-300/50">
+            Player stats (name, town hall, role) will be fetched automatically from the CoC API.
+          </p>
+          <button type="submit" disabled={addingPlayer} className="astral-btn-primary mt-4 w-full">
+            {addingPlayer ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            {addingPlayer ? 'Adding...' : 'Add Player'}
+          </button>
+        </form>
       )}
 
       {loading ? (

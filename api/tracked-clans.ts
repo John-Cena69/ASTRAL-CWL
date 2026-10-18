@@ -26,7 +26,7 @@ export default async function handler(req: unknown, res: {
       const { data, error } = await supabase
         .from('family_clans')
         .select('clan_tag, clan_name, added_date')
-        .order('clan_name');
+        .order('added_date', { ascending: true });
       if (error) throw new Error(error.message);
       res.status(200).json({ ok: true, clans: data ?? [] });
     } catch (error) {
