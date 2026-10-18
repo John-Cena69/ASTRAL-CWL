@@ -79,6 +79,7 @@ function CopyButton({ value }: { value: string }) {
 }
 
 export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
+  console.log('[ClanHomePage] clanTag:', clanTag, 'clanName:', clanName);
   const [players, setPlayers] = useState<ClanRosterPlayer[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
