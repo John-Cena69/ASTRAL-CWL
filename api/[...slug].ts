@@ -357,6 +357,47 @@ async function handleAccessManagement(
     send(res, 200, { ok: true });
     return;
   }
+  if (action === 'save_permissions') {
+    const role = String(body.role ?? '').trim();
+    const clanTags = Array.isArray(body.clan_tags)
+      ? body.clan_tags.map((tag) => String(tag).trim()).filter(Boolean)
+      : [];
+    const permissions = Array.isArray(body.permissions) ? body.permissions : [];
+    const pageKeys = ['roster', 'clans', 'accounts', 'wars', 'clan_home', 'war_weights', 'user_management'];
+    if (!role || clanTags.length === 0 || permissions.length === 0) {
+      send(res, 400, { ok: false, error: 'Role, at least one clan scope, and permissions are required.' });
+      return;
+    }
+    const rows = [];
+    for (const clanTag of clanTags) {
+      for (const permission of permissions) {
+        if (!permission || typeof permission !== 'object') continue;
+        const row = permission as Record<string, unknown>;
+        const pageKey = String(row.page_key ?? '');
+        if (!pageKeys.includes(pageKey)) continue;
+        rows.push({
+          clan_tag: clanTag,
+          role,
+          page_key: pageKey,
+          allowed: row.allowed === true,
+          updated_at: new Date().toISOString(),
+        });
+      }
+    }
+    if (rows.length === 0) {
+      send(res, 400, { ok: false, error: 'No valid page permissions were supplied.' });
+      return;
+    }
+    const { error } = await supabase
+      .from('page_permissions')
+      .upsert(rows, { onConflict: 'clan_tag,role,page_key' });
+    if (error) {
+      send(res, 500, { ok: false, error: error.message });
+      return;
+    }
+    send(res, 200, { ok: true, updated: rows.length });
+    return;
+  }
   send(res, 400, { ok: false, error: 'Unknown management action.' });
 }
 
