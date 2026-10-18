@@ -476,6 +476,76 @@ async function handleEditClanPlayer(req: { method?: string; url: string; headers
   }
 }
 
+// POST /api/edit-clan-players — batch edit player tags, roles, and join dates
+async function handleEditClanPlayers(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
+  if (req.method !== 'POST') {
+    send(res, 405, { ok: false, error: 'Use POST.' });
+    return;
+  }
+
+  const body = readJsonBody(req);
+  const clanTagRaw = String(body.clan_tag ?? '').trim();
+  const updates = Array.isArray(body.updates) ? body.updates : [];
+  if (!clanTagRaw || updates.length === 0) {
+    send(res, 400, { ok: false, error: 'Clan tag and at least one update are required.' });
+    return;
+  }
+
+  const parsedUpdates: { playerTag: string; newPlayerTag: string; role: string; joinDate: string }[] = [];
+  for (const update of updates) {
+    if (!update || typeof update !== 'object') {
+      send(res, 400, { ok: false, error: 'Each update must include a player tag, role, and join date.' });
+      return;
+    }
+    const row = update as Record<string, unknown>;
+    const playerTag = `#${String(row.player_tag ?? '').trim().toUpperCase().replace(/^#+/, '')}`;
+    const newPlayerTag = `#${String(row.new_player_tag ?? '').trim().toUpperCase().replace(/^#+/, '')}`;
+    const role = String(row.role ?? '').trim();
+    const joinDate = String(row.join_date ?? '').trim();
+    if (playerTag.length < 4 || newPlayerTag.length < 4 || !role || !joinDate) {
+      send(res, 400, { ok: false, error: 'Each player must have a valid tag, role, and join date.' });
+      return;
+    }
+    parsedUpdates.push({ playerTag, newPlayerTag, role, joinDate });
+  }
+
+  try {
+    const supabase = adminClient();
+    const clanTag = await resolveClanTag(supabase, clanTagRaw);
+    const now = new Date();
+    const updated: string[] = [];
+    const failed: string[] = [];
+
+    for (const update of parsedUpdates) {
+      const joinTime = new Date(update.joinDate).getTime();
+      if (Number.isNaN(joinTime)) {
+        failed.push(update.playerTag);
+        continue;
+      }
+      const daysInClan = Math.floor((now.getTime() - joinTime) / (24 * 60 * 60 * 1000));
+      const { data, error } = await supabase
+        .from('clan_players')
+        .update({
+          player_tag: update.newPlayerTag,
+          role: update.role,
+          join_date: update.joinDate,
+          days_in_clan: daysInClan,
+          updated_date: now.toISOString(),
+        })
+        .eq('clan_tag', clanTag)
+        .eq('player_tag', update.playerTag)
+        .select('player_tag');
+      if (error) throw new Error(error.message);
+      if (data?.length) updated.push(update.newPlayerTag);
+      else failed.push(update.playerTag);
+    }
+
+    send(res, 200, { ok: true, updated: updated.length, failed });
+  } catch (error) {
+    send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Batch update failed.' });
+  }
+}
+
 // POST /api/add-clan-player — add player with auto-sync from CoC API
 async function handleAddClanPlayer(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
   if (req.method !== 'POST') {
@@ -1187,6 +1257,9 @@ export default async function handler(req: unknown, res: {
       break;
     case 'edit-clan-player':
       await handleEditClanPlayer(r, res);
+      break;
+    case 'edit-clan-players':
+      await handleEditClanPlayers(r, res);
       break;
     case 'add-clan-player':
       await handleAddClanPlayer(r, res);
