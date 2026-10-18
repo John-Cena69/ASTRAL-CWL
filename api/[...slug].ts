@@ -110,17 +110,22 @@ function cleanTag(value: string): string | null {
 }
 
 // Resolve the exact clan_tag format stored in family_clans (with or without #)
-// Returns the stored format, or the input cleaned with # if not found
+// Auto-creates the clan in family_clans if not found, ensuring FK safety
 async function resolveClanTag(supabase: SupabaseClient, inputTag: string): Promise<string> {
-  const withHash = cleanTag(inputTag);
-  const withoutHash = (withHash ?? '').replace(/^#/, '');
-  // Try exact match first
+  const trimmed = inputTag.trim().toUpperCase();
+  const withHash = trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+  const withoutHash = trimmed.replace(/^#+/, '');
+  // Try exact match first (both formats)
   const { data: a } = await supabase.from('family_clans').select('clan_tag').eq('clan_tag', withHash).maybeSingle();
   if (a?.clan_tag) return a.clan_tag;
   const { data: b } = await supabase.from('family_clans').select('clan_tag').eq('clan_tag', withoutHash).maybeSingle();
   if (b?.clan_tag) return b.clan_tag;
-  // Fallback: return with # (standardized format)
-  return withHash ?? inputTag.trim().toUpperCase();
+  // Auto-create the clan in family_clans so FK constraints are satisfied
+  const { error: insertError } = await supabase
+    .from('family_clans')
+    .insert({ clan_tag: withHash, clan_name: withHash });
+  if (insertError) throw new Error(insertError.message);
+  return withHash;
 }
 
 function cocRoleToWebsiteRole(role: string): string {
