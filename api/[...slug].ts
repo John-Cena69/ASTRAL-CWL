@@ -82,17 +82,29 @@ function readJsonBody(req: { body?: unknown }): Record<string, unknown> {
   return body as Record<string, unknown>;
 }
 
-function getQuery(req: { url: string }): Record<string, string> {
+function getQuery(req: { url: string; query?: Record<string, string | string[] | undefined> }): Record<string, string> {
+  const params: Record<string, string> = {};
+
+  // Try req.query first (Vercel provides parsed query params)
+  if (req.query) {
+    for (const [k, v] of Object.entries(req.query)) {
+      if (typeof v === 'string') {
+        params[k] = v;
+      } else if (Array.isArray(v) && v.length > 0) {
+        params[k] = v[0];
+      }
+    }
+  }
+
+  // Also try parsing from URL as fallback
   try {
     const url = new URL(req.url, 'http://localhost');
-    const params: Record<string, string> = {};
     url.searchParams.forEach((v, k) => {
-      params[k] = v;
+      if (!params[k]) params[k] = v;
     });
-    return params;
-  } catch {
-    return {};
-  }
+  } catch {}
+
+  return params;
 }
 
 /* ───────────────────── response helper ───────────────────── */
