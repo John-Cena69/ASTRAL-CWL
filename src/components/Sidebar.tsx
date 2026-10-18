@@ -127,7 +127,8 @@ export default function Sidebar({ open, activePage, onNavigate, onClose }: Sideb
           }
           if (active && !body.ok) setClansError(body.error || 'Failed to load clans.');
         } else {
-          setClansError(`HTTP ${response.status}`);
+          const body = (await response.json().catch(() => ({}))) as { error?: string };
+          setClansError(body.error || `HTTP ${response.status}`);
         }
       } catch {
         // Fall back to direct Supabase read
