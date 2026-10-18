@@ -442,16 +442,15 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-space-700/40">
-                  <th className="px-4 py-3 text-left text-astral-300/60 font-medium w-12">#</th>
-                  <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Player Name</th>
-                  <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Player Tag</th>
-                  <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Discord ID</th>
-                  <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Town Hall</th>
-                  <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Role</th>
-                  <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Status</th>
-                  <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Days in Clan</th>
-                  <th className="px-4 py-3 text-left text-astral-300/60 font-medium">War Weight</th>
-                  <th className="px-4 py-3 text-right text-astral-300/60 font-medium w-20">Action</th>
+                  <th className="px-4 py-3 text-center text-astral-300/60 font-medium w-12">#</th>
+                  <th className="px-4 py-3 text-center text-astral-300/60 font-medium">Player Name</th>
+                  <th className="px-4 py-3 text-center text-astral-300/60 font-medium">Player Tag</th>
+                  <th className="px-4 py-3 text-center text-astral-300/60 font-medium">Discord ID</th>
+                  <th className="px-4 py-3 text-center text-astral-300/60 font-medium">Town Hall</th>
+                  <th className="px-4 py-3 text-center text-astral-300/60 font-medium">Role</th>
+                  <th className="px-4 py-3 text-center text-astral-300/60 font-medium">Status</th>
+                  <th className="px-4 py-3 text-center text-astral-300/60 font-medium">Days in Clan</th>
+                  <th className="px-4 py-3 text-center text-astral-300/60 font-medium">War Weight</th>
                 </tr>
               </thead>
               <tbody>
@@ -493,24 +492,24 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
 function ViewRow({ player, index }: { player: ClanRosterPlayer; index: number }) {
   return (
     <>
-      <td className="px-4 py-3 text-astral-300/40 font-mono text-xs">
+      <td className="px-4 py-3 text-center text-astral-300/40 font-mono text-xs">
         {index}
       </td>
-      <td className="px-4 py-3 text-astral-100 font-medium">{player.player_name}</td>
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-1.5">
+      <td className="px-4 py-3 text-center text-astral-100 font-medium">{player.player_name}</td>
+      <td className="px-4 py-3 text-center">
+        <div className="flex items-center justify-center gap-1.5">
           <span className="font-mono text-astral-200">{player.player_tag}</span>
           {player.player_tag && <CopyButton value={player.player_tag} />}
         </div>
       </td>
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-1.5">
+      <td className="px-4 py-3 text-center">
+        <div className="flex items-center justify-center gap-1.5">
           <span className="text-astral-200">{player.discord_id || '—'}</span>
           {player.discord_id && <CopyButton value={`<@${player.discord_id}`} />}
         </div>
       </td>
-      <td className="px-4 py-3 text-astral-100">{player.town_hall ?? '—'}</td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-3 text-center text-astral-100">{player.town_hall ?? '—'}</td>
+      <td className="px-4 py-3 text-center">
         <span
           className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${
             ROLE_STYLES[player.role ?? ''] || 'bg-astral-500/15 text-astral-300 border-astral-500/30'
@@ -519,7 +518,7 @@ function ViewRow({ player, index }: { player: ClanRosterPlayer; index: number })
           {player.role || '—'}
         </span>
       </td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-3 text-center">
         <span
           className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${
             STATUS_STYLES[player.status ?? ''] || 'bg-astral-500/15 text-astral-300 border-astral-500/30'
@@ -528,11 +527,10 @@ function ViewRow({ player, index }: { player: ClanRosterPlayer; index: number })
           {player.status || '—'}
         </span>
       </td>
-      <td className="px-4 py-3 text-astral-100 font-mono">{player.days_in_clan ?? '—'}</td>
-      <td className="px-4 py-3 text-astral-100 font-mono text-gold-300">
+      <td className="px-4 py-3 text-center text-astral-100 font-mono">{player.days_in_clan ?? '—'}</td>
+      <td className="px-4 py-3 text-center text-astral-100 font-mono text-gold-300">
         {player.war_weight ?? '—'}
       </td>
-      <td className="px-4 py-3 text-right text-astral-300/40">—</td>
     </>
   );
 }
@@ -554,29 +552,29 @@ function EditRow({
 
   return (
     <>
-      <td className="px-4 py-3 text-astral-300/40 font-mono text-xs">{index}</td>
-      <td className="px-4 py-3 text-astral-100 font-medium">{player.player_name}</td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-3 text-center text-astral-300/40 font-mono text-xs">{index}</td>
+      <td className="px-4 py-3 text-center text-astral-100 font-medium">{player.player_name}</td>
+      <td className="px-4 py-3 text-center">
         <input
           type="text"
           value={values.tag}
           onChange={(event) => onChange('tag', event.target.value.toUpperCase())}
-          className="astral-input w-full text-xs uppercase font-mono"
+          className="astral-input w-full text-center text-xs uppercase font-mono"
           placeholder="TAG"
         />
       </td>
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-1.5">
+      <td className="px-4 py-3 text-center">
+        <div className="flex items-center justify-center gap-1.5">
           <span className="text-astral-200">{player.discord_id || '—'}</span>
           {player.discord_id && <CopyButton value={`<@${player.discord_id}`} />}
         </div>
       </td>
-      <td className="px-4 py-3 text-astral-100">{player.town_hall ?? '—'}</td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-3 text-center text-astral-100">{player.town_hall ?? '—'}</td>
+      <td className="px-4 py-3 text-center">
         <select
           value={values.role}
           onChange={(event) => onChange('role', event.target.value)}
-          className="astral-input w-full text-xs"
+          className="astral-input w-full text-center text-xs"
         >
           {roles.map((role) => (
             <option key={role} value={role}>
@@ -585,7 +583,7 @@ function EditRow({
           ))}
         </select>
       </td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-3 text-center">
         <span
           className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${
             STATUS_STYLES[player.status ?? ''] || 'bg-astral-500/15 text-astral-300 border-astral-500/30'
@@ -594,18 +592,17 @@ function EditRow({
           {player.status || '—'}
         </span>
       </td>
-      <td className="px-4 py-3 text-astral-100 font-mono">
+      <td className="px-4 py-3 text-center text-astral-100 font-mono">
         <input
           type="date"
           value={values.joinDate}
           onChange={(event) => onChange('joinDate', event.target.value)}
-          className="astral-input w-full text-xs"
+          className="astral-input w-full text-center text-xs"
         />
       </td>
-      <td className="px-4 py-3 text-astral-100 font-mono text-gold-300">
+      <td className="px-4 py-3 text-center text-astral-100 font-mono text-gold-300">
         {player.war_weight ?? '—'}
       </td>
-      <td className="px-4 py-3 text-right text-astral-300/40">—</td>
     </>
   );
 }
