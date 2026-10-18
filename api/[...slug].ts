@@ -136,12 +136,20 @@ async function resolveClanTag(supabase: SupabaseClient, inputTag: string): Promi
 }
 
 async function ensureClanParent(supabase: SupabaseClient, clanTag: string): Promise<string> {
-  const { data: parent, error: upsertError } = await supabase
+  const { data: existing, error: selectError } = await supabase
     .from('family_clans')
-    .upsert({ clan_tag: clanTag, clan_name: clanTag }, { onConflict: 'clan_tag' })
+    .select('clan_tag')
+    .eq('clan_tag', clanTag)
+    .maybeSingle();
+  if (selectError) throw new Error(`Could not verify clan ${clanTag}: ${selectError.message}`);
+  if (existing?.clan_tag) return existing.clan_tag;
+
+  const { data: parent, error: insertError } = await supabase
+    .from('family_clans')
+    .insert({ clan_tag: clanTag, clan_name: clanTag })
     .select('clan_tag')
     .single();
-  if (upsertError) throw new Error(`Could not ensure clan ${clanTag} exists: ${upsertError.message}`);
+  if (insertError) throw new Error(`Could not create clan ${clanTag}: ${insertError.message}`);
   if (!parent?.clan_tag) {
     throw new Error(`Clan ${clanTag} was not found after it was created.`);
   }
