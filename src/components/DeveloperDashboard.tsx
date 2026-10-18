@@ -39,9 +39,9 @@ export default function DeveloperDashboard() {
   const [accessClans, setAccessClans] = useState<TrackedClan[]>([]);
   const [accessPermissions, setAccessPermissions] = useState<{ clan_tag: string; role: string; page_key: string; allowed: boolean }[]>([]);
   const [accessUserId, setAccessUserId] = useState('');
-  const [accessRole, setAccessRole] = useState('Viewer');
+  const [accessRole, setAccessRole] = useState('');
   const [permissionClans, setPermissionClans] = useState<string[]>(['*']);
-  const [permissionRole, setPermissionRole] = useState('Viewer');
+  const [permissionRole, setPermissionRole] = useState('');
   const [permissionAccess, setPermissionAccess] = useState<Record<string, boolean>>({});
 
   const loadClans = async () => {
@@ -95,7 +95,9 @@ export default function DeveloperDashboard() {
       setAccessUsers(body.users ?? []);
       setAccessClans(body.clans ?? []);
       setAccessPermissions(body.permissions ?? []);
-      if (!permissionRole && body.users?.[0]) setPermissionRole(body.users[0].role);
+      const availableRoles = [...new Set((body.users ?? []).map((user) => user.role).filter(Boolean))];
+      if (!permissionRole && availableRoles[0]) setPermissionRole(availableRoles[0]);
+      if (!accessRole && availableRoles[0]) setAccessRole(availableRoles[0]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load access settings.');
     }
@@ -132,9 +134,7 @@ export default function DeveloperDashboard() {
       permission.clan_tag === '*' && permission.role === role && permission.page_key === pageKey
     );
     if (global) return global.allowed;
-    return !accessPermissions.some((permission) =>
-      (permission.clan_tag === clanTag || permission.clan_tag === '*') && permission.page_key === pageKey
-    );
+    return true;
   };
 
   useEffect(() => {
@@ -259,13 +259,17 @@ export default function DeveloperDashboard() {
               >
                 <h4 className="text-sm font-medium text-gold-300">Allowed user role</h4>
                 <input value={accessUserId} onChange={(event) => setAccessUserId(event.target.value)} placeholder="Discord user ID" className="astral-input w-full" required />
-                <input value={accessRole} onChange={(event) => setAccessRole(event.target.value)} placeholder="Role (for example Viewer)" className="astral-input w-full" required />
+                <select value={accessRole} onChange={(event) => setAccessRole(event.target.value)} className="astral-input w-full" required>
+                  {[...new Set(['Developer', 'Admin', ...accessUsers.map((user) => user.role)])].filter(Boolean).map((role) => (
+                    <option key={role} value={role}>{role}</option>
+                  ))}
+                </select>
                 <button className="astral-btn-primary" type="submit"><UserPlus className="w-4 h-4" /> Save User Role</button>
               </form>
               <div className="space-y-3">
-                <h4 className="text-sm font-medium text-gold-300">Page access matrix</h4>
+                <h4 className="text-sm font-medium text-gold-300">Allowed pages by role</h4>
                 <p className="text-xs text-astral-300/60">
-                  Check the pages this role may open. Select multiple clans to apply the same settings in one save.
+                  Check the pages this role may open. Unchecked pages are denied when saved. Select multiple clans to apply the same settings in one save.
                 </p>
                 <select
                   value={permissionRole}
@@ -320,11 +324,11 @@ export default function DeveloperDashboard() {
                 {accessUsers.map((user) => <div key={user.discord_user_id} className="flex justify-between border-t border-astral-700/20 py-2"><span className="font-mono">{user.discord_user_id}</span><span className="text-gold-300">{user.role}</span></div>)}
               </div>
               <div>
-                <h4 className="mb-2 text-astral-200">Configured permissions</h4>
+                <h4 className="mb-2 text-astral-200">Allowed pages</h4>
                 {accessPermissions.length === 0 && (
                   <p className="text-xs text-astral-300/50">No overrides configured. All allowlisted roles currently have access by default.</p>
                 )}
-                {accessPermissions.map((permission) => {
+                {accessPermissions.filter((permission) => permission.allowed).map((permission) => {
                   const clan = accessClans.find((item) => item.clan_tag === permission.clan_tag);
                   const page = ACCESS_PAGES.find(([key]) => key === permission.page_key)?.[1] ?? permission.page_key;
                   return (
