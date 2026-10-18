@@ -139,36 +139,59 @@ export default function DeveloperDashboard() {
 
   const selectedAccessPages = permissionClans.includes('*')
     ? GLOBAL_PERMISSION_PAGES
-    : CLAN_ACCESS_PAGES;
+    : [...GLOBAL_PERMISSION_PAGES, ...CLAN_ACCESS_PAGES];
 
   useEffect(() => {
-    const referenceClan = permissionClans[0] ?? '*';
-    setPermissionAccess(Object.fromEntries(
-      selectedAccessPages.map(([pageKey]) => [pageKey, effectivePermission(referenceClan, permissionRole, pageKey)])
-    ));
+    const selectedClan = permissionClans.find((clan) => clan !== '*');
+    const values = Object.fromEntries(
+      GLOBAL_PERMISSION_PAGES.map(([pageKey]) => [
+        pageKey,
+        effectivePermission('*', permissionRole, pageKey),
+      ])
+    );
+    if (selectedClan) {
+      values.clan_access = effectivePermission(selectedClan, permissionRole, 'clan_access');
+    }
+    setPermissionAccess(values);
   }, [accessPermissions, permissionClans, permissionRole, selectedAccessPages]);
 
   const selectPermissionRole = (role: string) => {
     setPermissionRole(role);
-    const scope = permissionClans[0] ?? '*';
-    const referenceClan = scope === '*' ? '*' : scope;
-    setPermissionAccess(Object.fromEntries(
-      selectedAccessPages.map(([pageKey]) => [pageKey, effectivePermission(referenceClan, role, pageKey)])
-    ));
+    const selectedClan = permissionClans.find((clan) => clan !== '*');
+    const values = Object.fromEntries(
+      GLOBAL_PERMISSION_PAGES.map(([pageKey]) => [
+        pageKey,
+        effectivePermission('*', role, pageKey),
+      ])
+    );
+    if (selectedClan) {
+      values.clan_access = effectivePermission(selectedClan, role, 'clan_access');
+    }
+    setPermissionAccess(values);
   };
 
   const savePermissionMatrix = async () => {
-    const scopes = permissionClans.length > 0 ? permissionClans : ['*'];
-    const pages = scopes.includes('*') ? GLOBAL_PERMISSION_PAGES : CLAN_ACCESS_PAGES;
     await saveAccess({
       action: 'save_permissions',
       role: permissionRole,
-      clan_tags: scopes,
-      permissions: pages.map(([pageKey]) => ({
+      clan_tags: ['*'],
+      permissions: GLOBAL_PERMISSION_PAGES.map(([pageKey]) => ({
         page_key: pageKey,
         allowed: permissionAccess[pageKey] !== false,
       })),
     });
+    const selectedClans = permissionClans.filter((clan) => clan !== '*');
+    if (selectedClans.length > 0) {
+      await saveAccess({
+        action: 'save_permissions',
+        role: permissionRole,
+        clan_tags: selectedClans,
+        permissions: CLAN_ACCESS_PAGES.map(([pageKey]) => ({
+          page_key: pageKey,
+          allowed: permissionAccess[pageKey] !== false,
+        })),
+      });
+    }
   };
 
   const handleAdd = async (event: React.FormEvent) => {
