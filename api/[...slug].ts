@@ -10,7 +10,6 @@ import {
   getCurrentWar,
   getPlayer,
   toUnixSeconds,
-  type CocClan,
 } from './_lib/coc.js';
 import { calculateFwaResult, getFwaPoints, lookupPoints } from './_lib/fwa.js';
 
@@ -102,7 +101,9 @@ function getQuery(req: { url: string; query?: Record<string, string | string[] |
     url.searchParams.forEach((v, k) => {
       if (!params[k]) params[k] = v;
     });
-  } catch {}
+  } catch {
+    // The request URL may be unavailable in some serverless runtimes.
+  }
 
   return params;
 }
@@ -114,12 +115,6 @@ function send(res: { status: (code: number) => { json: (body: unknown) => void }
 }
 
 /* ───────────────────── tag helpers ───────────────────── */
-
-function cleanTag(value: string): string | null {
-  const clean = value.trim().toUpperCase().replace(/^#+/, '');
-  if (!clean) return null;
-  return `#${clean}`;
-}
 
 // Resolve the exact clan_tag format stored in family_clans (with or without #)
 // Auto-creates the clan in family_clans if not found, ensuring FK safety
@@ -232,7 +227,7 @@ async function handleTrackedClans(req: { method?: string; url: string; headers: 
 }
 
 // GET /api/clan-roster?clan_tag=#TAG — roster for clan Home page
-async function handleClanRoster(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined> }, res: { status: (code: number) => { json: (body: unknown) => void } }, auth: AuthResult): Promise<void> {
+async function handleClanRoster(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined> }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
   if (req.method !== 'GET') {
     send(res, 405, { ok: false, error: 'Use GET.' });
     return;
@@ -259,7 +254,7 @@ async function handleClanRoster(req: { method?: string; url: string; headers: Re
 }
 
 // POST /api/sync-clan-roster — manual roster sync from CoC API
-async function handleSyncClanRoster(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }, auth: AuthResult): Promise<void> {
+async function handleSyncClanRoster(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
   if (req.method !== 'POST') {
     send(res, 405, { ok: false, error: 'Use POST.' });
     return;
@@ -297,7 +292,7 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
     let clan;
     try {
       clan = await getClan(clanTag);
-    } catch (error) {
+    } catch {
       send(res, 404, { ok: false, error: `Clan ${clanTag} not found in CoC API.` });
       return;
     }
@@ -392,7 +387,7 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
 }
 
 // POST /api/edit-clan-player — edit player tag/role/join_date
-async function handleEditClanPlayer(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }, auth: AuthResult): Promise<void> {
+async function handleEditClanPlayer(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
   if (req.method !== 'POST') {
     send(res, 405, { ok: false, error: 'Use POST.' });
     return;
@@ -434,7 +429,6 @@ async function handleEditClanPlayer(req: { method?: string; url: string; headers
       }
       updates.updated_date = new Date().toISOString();
 
-      const targetTag = newPlayerTag ?? playerTag;
       const { error, data } = await supabase
         .from('clan_players')
         .update(updates)
@@ -457,7 +451,7 @@ async function handleEditClanPlayer(req: { method?: string; url: string; headers
 }
 
 // POST /api/add-clan-player — add player with auto-sync from CoC API
-async function handleAddClanPlayer(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }, auth: AuthResult): Promise<void> {
+async function handleAddClanPlayer(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
   if (req.method !== 'POST') {
     send(res, 405, { ok: false, error: 'Use POST.' });
     return;
@@ -503,7 +497,7 @@ async function handleAddClanPlayer(req: { method?: string; url: string; headers:
     let player;
     try {
       player = await getPlayer(playerTag);
-    } catch (error) {
+    } catch {
       send(res, 404, { ok: false, error: `Player ${playerTag} not found in CoC API.` });
       return;
     }
@@ -557,7 +551,7 @@ async function handleAddClanPlayer(req: { method?: string; url: string; headers:
 }
 
 // GET /api/war-weights?clan_tag=#TAG — war weights for clan
-async function handleWarWeights(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined> }, res: { status: (code: number) => { json: (body: unknown) => void } }, auth: AuthResult): Promise<void> {
+async function handleWarWeights(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined> }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
   if (req.method !== 'GET') {
     send(res, 405, { ok: false, error: 'Use GET.' });
     return;
@@ -584,7 +578,7 @@ async function handleWarWeights(req: { method?: string; url: string; headers: Re
 }
 
 // POST /api/sync-war-weights — sync war weights from current CoC war
-async function handleSyncWarWeights(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }, auth: AuthResult): Promise<void> {
+async function handleSyncWarWeights(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
   if (req.method !== 'POST') {
     send(res, 405, { ok: false, error: 'Use POST.' });
     return;
@@ -607,7 +601,7 @@ async function handleSyncWarWeights(req: { method?: string; url: string; headers
     let war;
     try {
       war = await getCurrentWar(clanTag);
-    } catch (error) {
+    } catch {
       send(res, 404, { ok: false, error: `No current war found for ${clanTag}.` });
       return;
     }
@@ -661,7 +655,7 @@ async function handleSyncWarWeights(req: { method?: string; url: string; headers
 }
 
 // POST /api/edit-war-weight — edit value, recalculates war_weight = value * 5
-async function handleEditWarWeight(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }, auth: AuthResult): Promise<void> {
+async function handleEditWarWeight(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
   if (req.method !== 'POST') {
     send(res, 405, { ok: false, error: 'Use POST.' });
     return;
@@ -712,7 +706,7 @@ async function handleEditWarWeight(req: { method?: string; url: string; headers:
 }
 
 // POST /api/sync — combined fillers + wars
-async function handleSync(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined> }, res: { status: (code: number) => { json: (body: unknown) => void } }, auth: AuthResult): Promise<void> {
+async function handleSync(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined> }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
   if (req.method !== 'POST' && req.method !== 'GET') {
     send(res, 405, { ok: false, error: 'Use POST.' });
     return;
@@ -1082,38 +1076,38 @@ export default async function handler(req: unknown, res: {
       await handleTrackedClans(r, res, auth);
       break;
     case 'clan-roster':
-      await handleClanRoster(r, res, auth);
+      await handleClanRoster(r, res);
       break;
     case 'sync-clan-roster':
-      await handleSyncClanRoster(r, res, auth);
+      await handleSyncClanRoster(r, res);
       break;
     case 'edit-clan-player':
-      await handleEditClanPlayer(r, res, auth);
+      await handleEditClanPlayer(r, res);
       break;
     case 'add-clan-player':
-      await handleAddClanPlayer(r, res, auth);
+      await handleAddClanPlayer(r, res);
       break;
     case 'war-weights':
-      await handleWarWeights(r, res, auth);
+      await handleWarWeights(r, res);
       break;
     case 'sync-war-weights':
-      await handleSyncWarWeights(r, res, auth);
+      await handleSyncWarWeights(r, res);
       break;
     case 'edit-war-weight':
-      await handleEditWarWeight(r, res, auth);
+      await handleEditWarWeight(r, res);
       break;
     case 'sync':
-      await handleSync(r, res, auth);
+      await handleSync(r, res);
       break;
     case 'sync-settings':
       await handleSyncSettings(r, res, auth);
       break;
     case 'sync-fillers':
       // falls into /api/sync logic handled inline in handleSync; keep a lightweight redirect
-      await handleSync(r, res, auth);
+      await handleSync(r, res);
       break;
     case 'sync-wars':
-      await handleSync(r, res, auth);
+      await handleSync(r, res);
       break;
     case 'cwl-clans':
       await handleCwlClans(r, res, auth);
