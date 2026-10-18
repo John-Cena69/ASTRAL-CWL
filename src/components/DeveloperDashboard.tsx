@@ -12,6 +12,16 @@ import {
 import { supabase } from '@/supabaseClient';
 import type { TrackedClan } from '@/types';
 
+const ACCESS_PAGES = [
+  ['roster', 'Main Roster'],
+  ['clans', 'Clan Management'],
+  ['accounts', 'Filler Accounts'],
+  ['wars', 'Wars'],
+  ['clan_home', 'Clan Home'],
+  ['war_weights', 'War Weights'],
+  ['user_management', 'User Management'],
+] as const;
+
 function normalizeTagInput(value: string): string {
   return `#${value.trim().toUpperCase().replace(/^#+/, '')}`;
 }
@@ -30,10 +40,9 @@ export default function DeveloperDashboard() {
   const [accessPermissions, setAccessPermissions] = useState<{ clan_tag: string; role: string; page_key: string; allowed: boolean }[]>([]);
   const [accessUserId, setAccessUserId] = useState('');
   const [accessRole, setAccessRole] = useState('Viewer');
-  const [permissionClan, setPermissionClan] = useState('');
+  const [permissionClans, setPermissionClans] = useState<string[]>(['*']);
   const [permissionRole, setPermissionRole] = useState('Viewer');
-  const [permissionPage, setPermissionPage] = useState('clan_home');
-  const [permissionAllowed, setPermissionAllowed] = useState(true);
+  const [permissionAccess, setPermissionAccess] = useState<Record<string, boolean>>({});
 
   const loadClans = async () => {
     if (!supabase) {
@@ -86,7 +95,7 @@ export default function DeveloperDashboard() {
       setAccessUsers(body.users ?? []);
       setAccessClans(body.clans ?? []);
       setAccessPermissions(body.permissions ?? []);
-      if (!permissionClan && body.clans?.[0]) setPermissionClan(body.clans[0].clan_tag);
+      if (!permissionRole && body.users?.[0]) setPermissionRole(body.users[0].role);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load access settings.');
     }
@@ -111,6 +120,50 @@ export default function DeveloperDashboard() {
     if (!response.ok || !body.ok) throw new Error(body.error || 'Failed to save access settings.');
     await loadAccess();
     setMessage('Access settings saved.');
+  };
+
+  const effectivePermission = (clanTag: string, role: string, pageKey: string): boolean => {
+    if (role === 'Developer' || role === 'Admin') return true;
+    const exact = accessPermissions.find((permission) =>
+      permission.clan_tag === clanTag && permission.role === role && permission.page_key === pageKey
+    );
+    if (exact) return exact.allowed;
+    const global = accessPermissions.find((permission) =>
+      permission.clan_tag === '*' && permission.role === role && permission.page_key === pageKey
+    );
+    if (global) return global.allowed;
+    return !accessPermissions.some((permission) =>
+      (permission.clan_tag === clanTag || permission.clan_tag === '*') && permission.page_key === pageKey
+    );
+  };
+
+  useEffect(() => {
+    const referenceClan = permissionClans[0] ?? '*';
+    setPermissionAccess(Object.fromEntries(
+      ACCESS_PAGES.map(([pageKey]) => [pageKey, effectivePermission(referenceClan, permissionRole, pageKey)])
+    ));
+  }, [accessPermissions, permissionClans, permissionRole]);
+
+  const selectPermissionRole = (role: string) => {
+    setPermissionRole(role);
+    const scope = permissionClans[0] ?? '*';
+    const referenceClan = scope === '*' ? '*' : scope;
+    setPermissionAccess(Object.fromEntries(
+      ACCESS_PAGES.map(([pageKey]) => [pageKey, effectivePermission(referenceClan, role, pageKey)])
+    ));
+  };
+
+  const savePermissionMatrix = async () => {
+    const scopes = permissionClans.length > 0 ? permissionClans : ['*'];
+    await saveAccess({
+      action: 'save_permissions',
+      role: permissionRole,
+      clan_tags: scopes,
+      permissions: ACCESS_PAGES.map(([pageKey]) => ({
+        page_key: pageKey,
+        allowed: permissionAccess[pageKey] !== false,
+      })),
+    });
   };
 
   const handleAdd = async (event: React.FormEvent) => {
@@ -209,31 +262,57 @@ export default function DeveloperDashboard() {
                 <input value={accessRole} onChange={(event) => setAccessRole(event.target.value)} placeholder="Role (for example Viewer)" className="astral-input w-full" required />
                 <button className="astral-btn-primary" type="submit"><UserPlus className="w-4 h-4" /> Save User Role</button>
               </form>
-              <form
-                className="space-y-3"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void saveAccess({ action: 'save_permission', clan_tag: permissionClan, role: permissionRole, page_key: permissionPage, allowed: permissionAllowed }).catch((err) => setError(err instanceof Error ? err.message : 'Failed to save permission.'));
-                }}
-              >
-                <h4 className="text-sm font-medium text-gold-300">Per-clan page permission</h4>
-                <select value={permissionClan} onChange={(event) => setPermissionClan(event.target.value)} className="astral-input w-full" required>
-                  <option value="*">All clans / global page</option>
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium text-gold-300">Page access matrix</h4>
+                <p className="text-xs text-astral-300/60">
+                  Check the pages this role may open. Select multiple clans to apply the same settings in one save.
+                </p>
+                <select
+                  value={permissionRole}
+                  onChange={(event) => selectPermissionRole(event.target.value)}
+                  className="astral-input w-full"
+                >
+                  {[...new Set(['Developer', 'Admin', ...accessUsers.map((user) => user.role)])].map((role) => (
+                    <option key={role} value={role}>{role}</option>
+                  ))}
+                </select>
+                <select
+                  multiple
+                  value={permissionClans}
+                  onChange={(event) => {
+                    const scopes = Array.from(event.target.selectedOptions, (option) => option.value);
+                    setPermissionClans(scopes);
+                    const referenceClan = scopes[0] ?? '*';
+                    setPermissionAccess(Object.fromEntries(
+                      ACCESS_PAGES.map(([pageKey]) => [pageKey, effectivePermission(referenceClan, permissionRole, pageKey)])
+                    ));
+                  }}
+                  className="astral-input w-full min-h-28"
+                >
+                  <option value="*">All clans / global</option>
                   {accessClans.map((clan) => <option key={clan.clan_tag} value={clan.clan_tag}>{clan.clan_name}</option>)}
                 </select>
-                <input value={permissionRole} onChange={(event) => setPermissionRole(event.target.value)} placeholder="Role" className="astral-input w-full" required />
-                <select value={permissionPage} onChange={(event) => setPermissionPage(event.target.value)} className="astral-input w-full">
-                  <option value="roster">Main Roster</option>
-                  <option value="clans">Clan Management</option>
-                  <option value="accounts">Filler Accounts</option>
-                  <option value="wars">Wars</option>
-                  <option value="clan_home">Clan Home</option>
-                  <option value="war_weights">War Weights</option>
-                  <option value="user_management">User Management</option>
-                </select>
-                <label className="flex items-center gap-2 text-sm text-astral-200"><input type="checkbox" checked={permissionAllowed} onChange={(event) => setPermissionAllowed(event.target.checked)} /> Allow access</label>
-                <button className="astral-btn-primary" type="submit"><Shield className="w-4 h-4" /> Save Permission</button>
-              </form>
+                <p className="text-xs text-astral-300/50">Hold Ctrl or Cmd to select multiple clans.</p>
+                <div className="rounded-lg border border-astral-700/30 divide-y divide-astral-700/20">
+                  {ACCESS_PAGES.map(([pageKey, label]) => (
+                    <label key={pageKey} className="flex items-center justify-between gap-3 px-3 py-2 text-sm text-astral-200">
+                      <span>{label}</span>
+                      <input
+                        type="checkbox"
+                        checked={permissionAccess[pageKey] ?? true}
+                        onChange={(event) => setPermissionAccess((current) => ({ ...current, [pageKey]: event.target.checked }))}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <button
+                  className="astral-btn-primary"
+                  type="button"
+                  onClick={() => void savePermissionMatrix().catch((err) => setError(err instanceof Error ? err.message : 'Failed to save permissions.'))}
+                >
+                  <Shield className="w-4 h-4" /> Save Page Access
+                </button>
+              </div>
             </div>
             <div className="grid lg:grid-cols-2 gap-5 text-sm">
               <div>
@@ -242,7 +321,19 @@ export default function DeveloperDashboard() {
               </div>
               <div>
                 <h4 className="mb-2 text-astral-200">Configured permissions</h4>
-                {accessPermissions.map((permission) => <div key={`${permission.clan_tag}-${permission.role}-${permission.page_key}`} className="flex justify-between border-t border-astral-700/20 py-2"><span>{permission.clan_tag} · {permission.page_key}</span><span className={permission.allowed ? 'text-emerald-300' : 'text-rose-300'}>{permission.role}: {permission.allowed ? 'Allowed' : 'Denied'}</span></div>)}
+                {accessPermissions.length === 0 && (
+                  <p className="text-xs text-astral-300/50">No overrides configured. All allowlisted roles currently have access by default.</p>
+                )}
+                {accessPermissions.map((permission) => {
+                  const clan = accessClans.find((item) => item.clan_tag === permission.clan_tag);
+                  const page = ACCESS_PAGES.find(([key]) => key === permission.page_key)?.[1] ?? permission.page_key;
+                  return (
+                    <div key={`${permission.clan_tag}-${permission.role}-${permission.page_key}`} className="flex justify-between gap-3 border-t border-astral-700/20 py-2">
+                      <span>{permission.clan_tag === '*' ? 'All clans' : clan?.clan_name ?? permission.clan_tag} · {page}</span>
+                      <span className={permission.allowed ? 'text-emerald-300' : 'text-rose-300'}>{permission.role}: {permission.allowed ? 'Allowed' : 'Denied'}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </section>
