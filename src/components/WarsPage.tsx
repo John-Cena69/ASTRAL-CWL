@@ -290,14 +290,19 @@ export default function WarsPage() {
         skipped?: number;
         skipDetail?: string;
         errors?: string[];
+        wars?: {
+          upserted?: number;
+          checked?: number;
+          skipped?: number;
+          skipDetail?: string;
+          errors?: string[];
+        };
       };
       if (!response.ok) throw new Error(body.error || `Sync failed (HTTP ${response.status}).`);
-      const detail = `checked ${body.checked ?? '?'} clan(s), skipped ${body.skipped ?? '?'}${body.skipDetail ? ` (${body.skipDetail})` : ''}`;
-      const errDetail = body.errors?.length ? ` Issues: ${body.errors.join(' | ').slice(0, 400)}` : '';
-      if ((body.upserted ?? 0) === 0) {
-        throw new Error(`Sync ran but updated nothing (${detail}).${errDetail}`);
-      }
-      setNotice(`Synced ${body.upserted ?? 0} war(s) from the CoC API.`);
+      const warSync = body.wars ?? body;
+      const detail = `checked ${warSync.checked ?? '?'} clan(s), skipped ${warSync.skipped ?? '?'}${warSync.skipDetail ? ` (${warSync.skipDetail})` : ''}`;
+      const errDetail = warSync.errors?.length ? ` Issues: ${warSync.errors.join(' | ').slice(0, 400)}` : '';
+      setNotice(`War sync completed: ${warSync.upserted ?? 0} war(s) updated (${detail}).${errDetail}`);
       await loadWars();
     } catch (err) {
       setError(syncErrorHint(err));
