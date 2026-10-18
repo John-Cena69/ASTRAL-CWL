@@ -27,10 +27,8 @@ import { supabase } from '@/supabaseClient';
 import type {
   Clan,
   ActivePage,
-  ClanPage,
   ColumnConfig,
   ColumnKey,
-  PageKey,
   SortState,
 } from '@/types';
 import { isClanPage } from '@/types';
@@ -52,7 +50,6 @@ export default function App() {
   const [hiddenClans, setHiddenClans] = useState<Set<string>>(new Set());
   const [spunClans, setSpunClans] = useState<Set<string>>(new Set());
 
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -167,7 +164,6 @@ export default function App() {
     }
 
     const loadSpreadsheet = async () => {
-      setLoading(true);
       setError(null);
       setWarning(null);
       try {
@@ -180,8 +176,6 @@ export default function App() {
         if (result.warning) setWarning(result.warning);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch the spreadsheet.');
-      } finally {
-        setLoading(false);
       }
     };
 
@@ -293,6 +287,7 @@ export default function App() {
           setActivePage(page);
           setSidebarOpen(false);
         }}
+        onInitialNavigate={setActivePage}
         onClose={() => setSidebarOpen(false)}
       />
 
