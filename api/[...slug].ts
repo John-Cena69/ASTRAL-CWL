@@ -73,7 +73,7 @@ function isManagement(auth: AuthResult): boolean {
 async function canAccessClanPage(
   req: { url: string; headers: Record<string, string | string[] | undefined> },
   clanTag: string,
-  pageKey: 'roster' | 'clans' | 'accounts' | 'wars' | 'clan_home' | 'war_weights' | 'user_management'
+  pageKey: 'roster' | 'clans' | 'accounts' | 'wars' | 'clan_access' | 'clan_home' | 'war_weights' | 'user_management'
 ): Promise<boolean> {
   const authHeader = getHeader(req, 'authorization');
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
@@ -339,7 +339,7 @@ async function handleAccessManagement(
     const clanTag = String(body.clan_tag ?? '').trim();
     const role = String(body.role ?? '').trim();
     const pageKey = String(body.page_key ?? '').trim();
-    if (!clanTag || !role || !['roster', 'clans', 'accounts', 'wars', 'clan_home', 'war_weights', 'user_management'].includes(pageKey)) {
+    if (!clanTag || !role || !['roster', 'clans', 'accounts', 'wars', 'clan_access', 'clan_home', 'war_weights', 'user_management'].includes(pageKey)) {
       send(res, 400, { ok: false, error: 'Clan, role, and a valid page are required.' });
       return;
     }
