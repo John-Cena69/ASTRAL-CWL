@@ -1103,8 +1103,7 @@ async function handleSync(req: { method?: string; url: string; headers: Record<s
     if (settingError) throw new Error(settingError.message);
 
     const familyTags = (clanRows ?? []).map((row) => row.clan_tag as string);
-    let syncState = settingRows?.[0]?.setting_value === 'Low' ? 'Low' : 'High';
-    const TOGGLE_CLAN = '#2C8PR82G';
+    const syncState = settingRows?.[0]?.setting_value === 'Low' ? 'Low' : 'High';
 
     const points = await getFwaPoints(true);
     let warsChecked = 0;
@@ -1162,17 +1161,7 @@ async function handleSync(req: { method?: string; url: string; headers: Record<s
 
         const isNewWar = !existing || existing.length === 0;
 
-        let effectiveSync = syncState;
-        let flippedThisWar = false;
-        if (tag.toUpperCase() === TOGGLE_CLAN && war.state === 'warEnded') {
-          const alreadyFinal = !!existing?.[0] && ['win', 'won', 'victory', 'loss', 'lost', 'lose', 'defeat', 'tie'].some((w) =>
-            String(existing[0].war_result ?? '').trim().toLowerCase().includes(w)
-          );
-          if (!alreadyFinal) {
-            effectiveSync = syncState === 'High' ? 'Low' : 'High';
-            flippedThisWar = true;
-          }
-        }
+        const effectiveSync = syncState;
 
         const freshPoints = isNewWar ? await getFwaPoints(true) : points;
         const ourPoints = lookupPoints(freshPoints, war.clan.tag);
@@ -1208,14 +1197,6 @@ async function handleSync(req: { method?: string; url: string; headers: Record<s
             .eq('end_time', endTime);
           if (updateError) throw new Error(updateError.message);
         }
-        if (flippedThisWar) {
-          syncState = effectiveSync;
-          const { error: syncError } = await supabase
-            .from('bot_settings')
-            .update({ setting_value: syncState })
-            .eq('setting_key', 'fwa_sync_state');
-          if (syncError) throw new Error(syncError.message);
-        }
         warsUpserted++;
       } catch (error) {
         warsErrors.push(`${tag}: ${(error as Error).message.slice(0, 160)}`);
@@ -1246,8 +1227,8 @@ async function handleSyncSettings(req: { method?: string; url: string; headers: 
     send(res, 405, { ok: false, error: 'Use POST.' });
     return;
   }
-  if (!isDeveloper(auth)) {
-    send(res, 403, { ok: false, error: 'Developer role required.' });
+  if (!auth.ok || !await canAccessClanPage(req, '*', 'wars')) {
+    send(res, 403, { ok: false, error: 'Wars access is required to change the FWA sync state.' });
     return;
   }
   const body = readJsonBody(req);
