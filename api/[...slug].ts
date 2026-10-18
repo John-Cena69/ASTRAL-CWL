@@ -135,6 +135,23 @@ async function resolveClanTag(supabase: SupabaseClient, inputTag: string): Promi
   return withHash;
 }
 
+async function ensureClanParent(supabase: SupabaseClient, clanTag: string): Promise<void> {
+  const { error: upsertError } = await supabase
+    .from('family_clans')
+    .upsert({ clan_tag: clanTag, clan_name: clanTag }, { onConflict: 'clan_tag' });
+  if (upsertError) throw new Error(`Could not ensure clan ${clanTag} exists: ${upsertError.message}`);
+
+  const { data, error: selectError } = await supabase
+    .from('family_clans')
+    .select('clan_tag')
+    .eq('clan_tag', clanTag)
+    .maybeSingle();
+  if (selectError) throw new Error(`Could not verify clan ${clanTag}: ${selectError.message}`);
+  if (!data?.clan_tag) {
+    throw new Error(`Clan ${clanTag} was not found after it was created.`);
+  }
+}
+
 function cocRoleToWebsiteRole(role: string): string {
   const r = role.toLowerCase();
   if (r === 'leader') return 'Leader';
@@ -276,18 +293,7 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
 
     // Ensure the clan exists in family_clans (foreign key parent)
-    const { data: existingClan, error: clanSelectError } = await supabase
-      .from('family_clans')
-      .select('clan_tag')
-      .eq('clan_tag', clanTag)
-      .maybeSingle();
-    if (clanSelectError) throw new Error(clanSelectError.message);
-    if (!existingClan) {
-      const { error: clanInsertError } = await supabase
-        .from('family_clans')
-        .insert({ clan_tag: clanTag, clan_name: clanTag });
-      if (clanInsertError) throw new Error(clanInsertError.message);
-    }
+    await ensureClanParent(supabase, clanTag);
 
     let clan;
     try {
@@ -480,18 +486,7 @@ async function handleAddClanPlayer(req: { method?: string; url: string; headers:
     const playerTag = `#${cleanPlayer}`;
 
     // Ensure the clan exists in family_clans (foreign key parent)
-    const { data: existingClan, error: clanSelectError } = await supabase
-      .from('family_clans')
-      .select('clan_tag')
-      .eq('clan_tag', clanTag)
-      .maybeSingle();
-    if (clanSelectError) throw new Error(clanSelectError.message);
-    if (!existingClan) {
-      const { error: clanInsertError } = await supabase
-        .from('family_clans')
-        .insert({ clan_tag: clanTag, clan_name: clanTag });
-      if (clanInsertError) throw new Error(clanInsertError.message);
-    }
+    await ensureClanParent(supabase, clanTag);
 
     // Fetch player from CoC API
     let player;
