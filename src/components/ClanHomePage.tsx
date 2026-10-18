@@ -79,7 +79,27 @@ function CopyButton({ value }: { value: string }) {
 }
 
 export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
-  console.log('[ClanHomePage] clanTag:', clanTag, 'clanName:', clanName);
+  console.log('[ClanHomePage] clanTag prop:', clanTag, 'clanName prop:', clanName);
+
+  // Fallback: read clan_tag from URL query params (?clan_tag=#TAG)
+  const [urlClanTag, setUrlClanTag] = useState<string>('');
+
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tag = params.get('clan_tag');
+      if (tag) {
+        setUrlClanTag(tag);
+        console.log('[ClanHomePage] clanTag from URL:', tag);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const resolvedClanTag = clanTag || urlClanTag;
+
+  console.log('[ClanHomePage] resolvedClanTag:', resolvedClanTag);
   const [players, setPlayers] = useState<ClanRosterPlayer[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -104,7 +124,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
       setLoading(false);
       return;
     }
-    if (!clanTag || !clanTag.trim()) {
+    if (!resolvedClanTag || !resolvedClanTag.trim()) {
       setError('Clan tag is required. Please select a clan from the sidebar.');
       setLoading(false);
       return;
@@ -114,7 +134,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
-      const response = await fetch(`/api/clan-roster?clan_tag=${encodeURIComponent(clanTag)}`, {
+      const response = await fetch(`/api/clan-roster?clan_tag=${encodeURIComponent(resolvedClanTag)}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const body = (await response.json().catch(() => ({}))) as {
@@ -146,7 +166,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ clan_tag: clanTag }),
+        body: JSON.stringify({ clan_tag: resolvedClanTag }),
       });
       const body = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -183,7 +203,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ clan_tag: clanTag, player_tag: tag }),
+        body: JSON.stringify({ clan_tag: resolvedClanTag, player_tag: tag }),
       });
       const body = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
