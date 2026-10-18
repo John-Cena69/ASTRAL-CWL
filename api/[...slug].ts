@@ -384,7 +384,7 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
           ? {
               player_name: member.name,
               discord_id: discordIdMap[member.tag] ?? null,
-              town_hall: member.town_hall ?? null,
+              town_hall: member.townHallLevel ?? null,
             }
           : {}),
       };
