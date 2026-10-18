@@ -6,7 +6,6 @@ import {
   Swords,
   X,
   Settings,
-  Users,
 } from 'lucide-react';
 import type { PageKey, TrackedClan, ClanPage } from '@/types';
 import { clanPageKey } from '@/types';
@@ -72,6 +71,13 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
   const [trackedClans, setTrackedClans] = useState<TrackedClan[]>([]);
   const [loading, setLoading] = useState(true);
   const [clansError, setClansError] = useState<string | null>(null);
+  const [clanPageAccess, setClanPageAccess] = useState<Record<string, { home: boolean; weights: boolean }>>({});
+  const [globalPageAccess, setGlobalPageAccess] = useState<Record<string, boolean>>({
+    roster: true,
+    clans: true,
+    accounts: true,
+    wars: true,
+  });
 
   const isClanPageActive = (page: PageKey | ClanPage): page is ClanPage => {
     return (page as ClanPage).type === 'clan';
@@ -86,6 +92,13 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
         setLoading(false);
         return;
       }
+      const client = supabase;
+      const globalKeys = ['roster', 'clans', 'accounts', 'wars'];
+      const globalAccess = await Promise.all(globalKeys.map(async (pageKey) => {
+        const result = await client.rpc('can_access_clan_page', { requested_clan_tag: '*', requested_page_key: pageKey });
+        return [pageKey, result.error ? false : result.data === true] as const;
+      }));
+      if (active) setGlobalPageAccess(Object.fromEntries(globalAccess));
       try {
         // Try the API route first (works under vercel dev / deployed)
         const { data: session } = await supabase.auth.getSession();
@@ -104,6 +117,14 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
               ? body.clans.map(normalizeTrackedClan).filter((clan): clan is TrackedClan => clan !== null)
               : [];
             setTrackedClans(clans);
+            const accessEntries = await Promise.all(clans.map(async (clan) => {
+              const [home, weights] = await Promise.all([
+                client.rpc('can_access_clan_page', { requested_clan_tag: clan.clan_tag, requested_page_key: 'clan_home' }),
+                client.rpc('can_access_clan_page', { requested_clan_tag: clan.clan_tag, requested_page_key: 'war_weights' }),
+              ]);
+              return [clan.clan_tag, { home: home.error ? false : home.data === true, weights: weights.error ? false : weights.data === true }] as const;
+            }));
+            if (active) setClanPageAccess(Object.fromEntries(accessEntries));
           }
           if (active && !body.ok) setClansError(body.error || 'Failed to load clans.');
         } else {
@@ -136,8 +157,8 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
       title: clan.clan_name,
       clanTag: clan.clan_tag,
       items: [
-        { key: `clan-home:${clan.clan_tag}`, label: 'Home', page: 'home' },
-        { key: `clan-weights:${clan.clan_tag}`, label: 'War Weights', page: 'war-weights' },
+        ...(clanPageAccess[clan.clan_tag]?.home ? [{ key: `clan-home:${clan.clan_tag}`, label: 'Home', page: 'home' as const }] : []),
+        ...(clanPageAccess[clan.clan_tag]?.weights ? [{ key: `clan-weights:${clan.clan_tag}`, label: 'War Weights', page: 'war-weights' as const }] : []),
       ],
     }));
   };
@@ -178,7 +199,7 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
                 {section.title}
               </p>
               <div className="space-y-1">
-                {section.items.map((item) => {
+                {section.items.filter((item) => globalPageAccess[item.key] !== false).map((item) => {
                   const Icon = item.icon;
                   const active = activePage === item.key;
                   return (
@@ -208,10 +229,9 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
                 Clans
               </p>
               <div className="space-y-1">
-                {clanSections.map((section) => {
+                {clanSections.filter((section) => section.items.length > 0).map((section) => {
                   const activeHome = activeClanPage?.clanTag === section.clanTag && activeClanPage.page === 'home';
                   const activeWeights = activeClanPage?.clanTag === section.clanTag && activeClanPage.page === 'war-weights';
-                  const isActive = activeHome || activeWeights;
                   return (
                     <div key={section.clanTag} className="mb-1">
                       <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition border bg-space-800/40 border-astral-700/30">
@@ -255,8 +275,8 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
           )}
         </nav>
 
-        {/* Developer section (only if Developer role) */}
-        {allowedRole === 'Developer' && (
+        {/* Management section */}
+        {['Developer', 'Admin'].includes(allowedRole ?? '') && (
           <div className="px-3 pb-4 border-t border-astral-700/30 mt-auto">
             <button
               onClick={() => onNavigate('developer')}
