@@ -142,7 +142,7 @@ export default async function handler(req: unknown, res: {
         role: igRole,
         status,
         join_date: joinDate,
-        days_in_clan,
+        days_in_clan: daysInClan,
         war_weight: null,
         updated_date: now.toISOString(),
       };
