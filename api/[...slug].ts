@@ -393,44 +393,47 @@ async function handleEditClanPlayer(req: { method?: string; url: string; headers
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
     const playerTag = `#${playerTagRaw.toUpperCase().replace(/^#+/, '')}`;
 
-  const updates: Record<string, unknown> = {};
-  const newPlayerTag = body.new_player_tag
-    ? `#${String(body.new_player_tag).trim().toUpperCase().replace(/^#+/, '')}`
-    : null;
+    const updates: Record<string, unknown> = {};
+    const newPlayerTag = body.new_player_tag
+      ? `#${String(body.new_player_tag).trim().toUpperCase().replace(/^#+/, '')}`
+      : null;
 
-  if (newPlayerTag) updates.player_tag = newPlayerTag;
-  if (body.role) updates.role = body.role;
-  if (body.join_date) updates.join_date = body.join_date;
+    if (newPlayerTag) updates.player_tag = newPlayerTag;
+    if (body.role) updates.role = body.role;
+    if (body.join_date) updates.join_date = body.join_date;
 
-  if (Object.keys(updates).length === 0) {
-    send(res, 400, { ok: false, error: 'Nothing to update.' });
-    return;
-  }
-
-  try {
-    const supabase = adminClient();
-    if (body.join_date) {
-      const now = new Date();
-      const oneDayMs = 24 * 60 * 60 * 1000;
-      const joinTime = new Date(body.join_date).getTime();
-      updates.days_in_clan = Math.floor((now.getTime() - joinTime) / oneDayMs);
-    }
-    updates.updated_date = new Date().toISOString();
-
-    const targetTag = newPlayerTag ?? playerTag;
-    const { error, data } = await supabase
-      .from('clan_players')
-      .update(updates)
-      .eq('clan_tag', clanTag)
-      .eq('player_tag', playerTag)
-      .select();
-
-    if (error) throw new Error(error.message);
-    if (!data || data.length === 0) {
-      send(res, 404, { ok: false, error: 'Player not found in this clan.' });
+    if (Object.keys(updates).length === 0) {
+      send(res, 400, { ok: false, error: 'Nothing to update.' });
       return;
     }
-    send(res, 200, { ok: true, updated: data[0] });
+
+    try {
+      const supabase = adminClient();
+      if (body.join_date) {
+        const now = new Date();
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        const joinTime = new Date(body.join_date).getTime();
+        updates.days_in_clan = Math.floor((now.getTime() - joinTime) / oneDayMs);
+      }
+      updates.updated_date = new Date().toISOString();
+
+      const targetTag = newPlayerTag ?? playerTag;
+      const { error, data } = await supabase
+        .from('clan_players')
+        .update(updates)
+        .eq('clan_tag', clanTag)
+        .eq('player_tag', playerTag)
+        .select();
+
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) {
+        send(res, 404, { ok: false, error: 'Player not found in this clan.' });
+        return;
+      }
+      send(res, 200, { ok: true, updated: data[0] });
+    } catch (error) {
+      send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Update failed.' });
+    }
   } catch (error) {
     send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Update failed.' });
   }
@@ -489,6 +492,16 @@ async function handleAddClanPlayer(req: { method?: string; url: string; headers:
     }
 
     let discordId: string | null = null;
+    try {
+      const { data: linked, error: linkedError } = await supabase
+        .from('playerbase')
+        .select('discord_id')
+        .eq('player_tag', playerTag)
+        .maybeSingle();
+      if (!linkedError && linked) {
+        discordId = linked.discord_id ?? null;
+      }
+    } catch {
       // ignore
     }
 
@@ -655,25 +668,27 @@ async function handleEditWarWeight(req: { method?: string; url: string; headers:
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
     const playerTag = `#${playerTagRaw.toUpperCase().replace(/^#+/, '')}`;
 
-  try {
-    const supabase = adminClient();
-    const { error, data } = await supabase
-      .from('war_weights')
-      .update({
-        value,
-        war_weight: value * 5,
-        updated_date: new Date().toISOString(),
-      })
-      .eq('clan_tag', clanTag)
-      .eq('player_tag', playerTag)
-      .select();
+    try {
+      const { error, data } = await supabase
+        .from('war_weights')
+        .update({
+          value,
+          war_weight: value * 5,
+          updated_date: new Date().toISOString(),
+        })
+        .eq('clan_tag', clanTag)
+        .eq('player_tag', playerTag)
+        .select();
 
-    if (error) throw new Error(error.message);
-    if (!data || data.length === 0) {
-      send(res, 404, { ok: false, error: 'Player not found in war weights.' });
-      return;
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) {
+        send(res, 404, { ok: false, error: 'Player not found in war weights.' });
+        return;
+      }
+      send(res, 200, { ok: true, updated: data[0] });
+    } catch (error) {
+      send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Update failed.' });
     }
-    send(res, 200, { ok: true, updated: data[0] });
   } catch (error) {
     send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Update failed.' });
   }
