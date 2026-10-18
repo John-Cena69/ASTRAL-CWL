@@ -85,6 +85,12 @@ export interface CocWar {
     badgeUrls?: { medium?: string; large?: string; small?: string };
     stars: number;
     attacks: number;
+    members?: {
+      tag: string;
+      name: string;
+      mapPosition?: number;
+      townHallLevel?: number;
+    }[];
   };
   opponent: { tag: string; name: string; stars: number; attacks: number };
   preparationStartTime?: string;
