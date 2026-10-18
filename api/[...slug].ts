@@ -174,6 +174,17 @@ function normalizeRoleForComparison(role: string): string {
   return r;
 }
 
+const ROSTER_ROLE_ORDER: Record<string, number> = {
+  leader: 0,
+  rep: 1,
+  'co-leader': 2,
+  coleader: 2,
+  staff: 3,
+  elder: 4,
+  member: 5,
+  filler: 6,
+};
+
 /* ───────────────────── handlers ───────────────────── */
 
 // GET /api/tracked-clans — list tracked clans (family_clans)
@@ -265,10 +276,21 @@ async function handleClanRoster(req: { method?: string; url: string; headers: Re
     const { data, error } = await supabase
       .from('clan_players')
       .select('id, player_name, player_tag, discord_id, town_hall, role, status, join_date, days_in_clan, war_weight, updated_date')
-      .eq('clan_tag', clanTag)
-      .order('war_weight', { ascending: false, nullsFirst: false });
+      .eq('clan_tag', clanTag);
     if (error) throw new Error(error.message);
-    send(res, 200, { ok: true, clan_tag: clanTag, players: data ?? [] });
+    const players = [...(data ?? [])].sort((a, b) => {
+      const roleDifference =
+        (ROSTER_ROLE_ORDER[normalizeRoleForComparison(a.role ?? '')] ?? 99) -
+        (ROSTER_ROLE_ORDER[normalizeRoleForComparison(b.role ?? '')] ?? 99);
+      if (roleDifference !== 0) return roleDifference;
+      const townHallDifference = (b.town_hall ?? 0) - (a.town_hall ?? 0);
+      if (townHallDifference !== 0) return townHallDifference;
+      const joinDateA = a.join_date ? new Date(a.join_date).getTime() : Number.MAX_SAFE_INTEGER;
+      const joinDateB = b.join_date ? new Date(b.join_date).getTime() : Number.MAX_SAFE_INTEGER;
+      if (joinDateA !== joinDateB) return joinDateA - joinDateB;
+      return a.player_name.localeCompare(b.player_name);
+    });
+    send(res, 200, { ok: true, clan_tag: clanTag, players });
   } catch (error) {
     send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Failed to load roster.' });
   }
@@ -308,11 +330,6 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
     }
 
     const members = clan.memberList ?? [];
-    if (members.length === 0) {
-      send(res, 200, { ok: true, updated: 0, message: 'No members found.' });
-      return;
-    }
-
     const tags = members.map((m) => m.tag);
     const discordIdMap: Record<string, string> = {};
     try {
@@ -372,7 +389,7 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
         player_tag: member.tag,
         discord_id: discordIdMap[member.tag] ?? null,
         town_hall: member.town_hall ?? null,
-        role: igRole,
+        role: previousRole || igRole,
         status,
         join_date: joinDate,
         days_in_clan: daysInClan,
@@ -381,13 +398,41 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
       };
     });
 
+    const currentTags = new Set(members.map((member) => member.tag));
+    const missingTags = (existing ?? [])
+      .map((row) => row.player_tag)
+      .filter((playerTag) => !currentTags.has(playerTag));
+
     const CHUNK = 50;
     let updated = 0;
+    if (members.length === 0) {
+      for (let i = 0; i < missingTags.length; i += CHUNK) {
+        const chunk = missingTags.slice(i, i + CHUNK);
+        const { error } = await supabase
+          .from('clan_players')
+          .update({ status: 'Missing from Clan', updated_date: now.toISOString() })
+          .eq('clan_tag', clanTag)
+          .in('player_tag', chunk);
+        if (error) throw new Error(error.message);
+      }
+      send(res, 200, { ok: true, updated: 0, missing: missingTags.length, message: 'No members found.' });
+      return;
+    }
+
     for (let i = 0; i < upserts.length; i += CHUNK) {
       const chunk = upserts.slice(i, i + CHUNK);
       const { error } = await supabase.from('clan_players').upsert(chunk, { onConflict: 'clan_tag, player_tag' });
       if (error) throw new Error(error.message);
       updated += chunk.length;
+    }
+    for (let i = 0; i < missingTags.length; i += CHUNK) {
+      const chunk = missingTags.slice(i, i + CHUNK);
+      const { error } = await supabase
+        .from('clan_players')
+        .update({ status: 'Missing from Clan', updated_date: now.toISOString() })
+        .eq('clan_tag', clanTag)
+        .in('player_tag', chunk);
+      if (error) throw new Error(error.message);
     }
 
     send(res, 200, { ok: true, updated, clan_tag: clanTag, clan_name: clan.name });
