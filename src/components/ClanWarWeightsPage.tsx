@@ -162,10 +162,11 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
       .filter((weight) => Object.prototype.hasOwnProperty.call(editingValue, weight.id))
       .map((weight) => ({
         player_tag: weight.player_tag,
+        rawValue: editingValue[weight.id]?.trim() ?? '',
         value: Number(editingValue[weight.id]?.trim()),
       }));
     if (updates.length === 0) return;
-    if (updates.some((update) => !Number.isInteger(update.value) || update.value < 0)) {
+    if (updates.some((update) => !update.rawValue || !Number.isInteger(update.value) || update.value < 0)) {
       setError('Every value must be a whole number of 0 or greater.');
       return;
     }
@@ -203,11 +204,6 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
     }
   };
 
-  const cancelEdit = (id: string) => {
-    delete editingValue[id];
-    setEditingValue({ ...editingValue });
-  };
-
   useEffect(() => {
     void loadWeights();
   }, [resolvedClanTag]);
@@ -224,7 +220,7 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
             <p className="text-xs text-gold-400/80 font-mono">{clanTag}</p>
           </div>
           <p className="mt-1 text-sm text-astral-300/60">
-            War roster order is shown in the first column. WAR WEIGHT = VALUE × 5. Only VALUE is editable.
+            Edit values directly in the table, then save all changes together. WAR WEIGHT = VALUE × 5.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
@@ -323,14 +319,12 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
                   <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Player Name</th>
                   <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Player Tag</th>
                   <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Town Hall</th>
-                  <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Value</th>
+                  <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Value (editable)</th>
                   <th className="px-4 py-3 text-left text-astral-300/60 font-medium">War Weight</th>
-                  <th className="px-4 py-3 text-right text-astral-300/60 font-medium w-24">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {weights.map((w, idx) => {
-                  const isEditing = !!editingValue[w.id];
                   const warWeight = w.value != null ? w.value * 5 : w.war_weight;
                   return (
                     <tr
@@ -347,48 +341,17 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
                       </td>
                       <td className="px-4 py-3 text-astral-100">{w.town_hall ?? '—'}</td>
                       <td className="px-4 py-3">
-                        {isEditing ? (
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              min="0"
-                              value={editingValue[w.id] ?? ''}
-                              onChange={(e) => setEditingValue({ ...editingValue, [w.id]: e.target.value })}
-                              className="astral-input w-24 text-xs"
-                              onKeyDown={(e) => {
-                                if (e.key === 'Escape') cancelEdit(w.id);
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => cancelEdit(w.id)}
-                              className="p-1.5 text-astral-300/70 hover:text-white hover:bg-astral-700/30 rounded-lg"
-                              title="Cancel"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-mono text-gold-300">{w.value ?? '—'}</span>
-                            {w.value != null && <CopyButton value={String(w.value)} />}
-                          </div>
-                        )}
+                        <input
+                          type="number"
+                          min="0"
+                          aria-label={`Value for ${w.player_name}`}
+                          value={editingValue[w.id] ?? String(w.value ?? '')}
+                          onChange={(e) => setEditingValue({ ...editingValue, [w.id]: e.target.value })}
+                          className="astral-input w-24 text-xs"
+                        />
                       </td>
                       <td className="px-4 py-3 text-astral-100 font-mono text-gold-300">
                         {warWeight ?? '—'}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {isEditing ? null : (
-                          <button
-                            type="button"
-                            onClick={() => setEditingValue({ ...editingValue, [w.id]: String(w.value ?? '') })}
-                            className="p-1.5 text-gold-300/70 hover:text-gold-200 hover:bg-gold-500/10 rounded-lg"
-                            title="Edit Value"
-                          >
-                            <Shield className="w-4 h-4" />
-                          </button>
-                        )}
                       </td>
                     </tr>
                   );
