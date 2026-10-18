@@ -96,7 +96,7 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
       const globalKeys = ['roster', 'clans', 'accounts', 'wars'];
       const globalAccess = await Promise.all(globalKeys.map(async (pageKey) => {
         const result = await client.rpc('can_access_clan_page', { requested_clan_tag: '*', requested_page_key: pageKey });
-        return [pageKey, result.error ? false : result.data === true] as const;
+        return [pageKey, result.error ? true : result.data !== false] as const;
       }));
       if (active) setGlobalPageAccess(Object.fromEntries(globalAccess));
       try {
@@ -122,7 +122,7 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
                 client.rpc('can_access_clan_page', { requested_clan_tag: clan.clan_tag, requested_page_key: 'clan_home' }),
                 client.rpc('can_access_clan_page', { requested_clan_tag: clan.clan_tag, requested_page_key: 'war_weights' }),
               ]);
-              return [clan.clan_tag, { home: home.error ? false : home.data === true, weights: weights.error ? false : weights.data === true }] as const;
+              return [clan.clan_tag, { home: home.error ? true : home.data !== false, weights: weights.error ? true : weights.data !== false }] as const;
             }));
             if (active) setClanPageAccess(Object.fromEntries(accessEntries));
           }
