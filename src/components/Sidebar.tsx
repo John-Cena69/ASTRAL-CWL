@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Database,
   Flag,
@@ -63,10 +63,11 @@ interface SidebarProps {
   open: boolean;
   activePage: PageKey | ClanPage;
   onNavigate: (page: PageKey | ClanPage) => void;
+  onInitialNavigate: (page: PageKey | ClanPage) => void;
   onClose: () => void;
 }
 
-export default function Sidebar({ open, activePage, onNavigate, onClose }: SidebarProps) {
+export default function Sidebar({ open, activePage, onNavigate, onInitialNavigate, onClose }: SidebarProps) {
   const [trackedClans, setTrackedClans] = useState<TrackedClan[]>([]);
   const [loading, setLoading] = useState(true);
   const [clansError, setClansError] = useState<string | null>(null);
@@ -77,6 +78,7 @@ export default function Sidebar({ open, activePage, onNavigate, onClose }: Sideb
     wars: true,
     clan_management: false,
   });
+  const initialNavigationSet = useRef(false);
 
   const isClanPageActive = (page: PageKey | ClanPage): page is ClanPage => {
     return (page as ClanPage).type === 'clan';
@@ -124,6 +126,20 @@ export default function Sidebar({ open, activePage, onNavigate, onClose }: Sideb
               return [clan.clan_tag, access.error ? true : access.data !== false] as const;
             }));
             if (active) setClanPageAccess(Object.fromEntries(accessEntries));
+            if (active && !initialNavigationSet.current) {
+              const firstClan = clans.find((clan) => accessEntries.find(([tag, allowed]) => tag === clan.clan_tag && allowed));
+              const firstPage: PageKey | ClanPage | null =
+                globalAccess.find(([key, allowed]) => key === 'cwl' && allowed) ? 'roster'
+                  : globalAccess.find(([key, allowed]) => key === 'fillers' && allowed) ? 'accounts'
+                    : globalAccess.find(([key, allowed]) => key === 'wars' && allowed) ? 'wars'
+                      : firstClan ? clanPageKey(firstClan.clan_tag, firstClan.clan_name, 'home')
+                        : globalAccess.find(([key, allowed]) => key === 'clan_management' && allowed) ? 'developer'
+                          : null;
+              if (firstPage) {
+                initialNavigationSet.current = true;
+                onInitialNavigate(firstPage);
+              }
+            }
           }
           if (active && !body.ok) setClansError(body.error || 'Failed to load clans.');
         } else {
@@ -150,7 +166,7 @@ export default function Sidebar({ open, activePage, onNavigate, onClose }: Sideb
     };
     loadClans();
     return () => { active = false; };
-  }, [supabase]);
+  }, [onInitialNavigate]);
 
   const buildClanSections = (): ClanSection[] => {
     return trackedClans.map((clan) => ({
