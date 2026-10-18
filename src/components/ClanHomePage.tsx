@@ -422,7 +422,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
                 </tr>
               </thead>
               <tbody>
-                {players.map((player) => {
+                {players.map((player, idx) => {
                   const isEditing = editingId === player.id;
                   return (
                     <tr
@@ -432,6 +432,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
                       {isEditing ? (
                         <EditRow
                           player={player}
+                          index={idx + 1}
                           roles={ROLE_OPTIONS}
                           editTag={editTag}
                           editRole={editRole}
@@ -446,6 +447,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
                       ) : (
                         <ViewRow
                           player={player}
+                          index={idx + 1}
                           onEdit={() => startEdit(player)}
                         />
                       )}
@@ -464,12 +466,11 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
   );
 }
 
-function ViewRow({ player, onEdit }: { player: ClanRosterPlayer; onEdit: () => void }) {
+function ViewRow({ player, index, onEdit }: { player: ClanRosterPlayer; index: number; onEdit: () => void }) {
   return (
     <>
       <td className="px-4 py-3 text-astral-300/40 font-mono text-xs">
-        {/* # column handled by parent index */}
-        <span>—</span>
+        {index}
       </td>
       <td className="px-4 py-3 text-astral-100 font-medium">{player.player_name}</td>
       <td className="px-4 py-3">
@@ -523,6 +524,7 @@ function ViewRow({ player, onEdit }: { player: ClanRosterPlayer; onEdit: () => v
 
 function EditRow({
   player,
+  index,
   roles,
   editTag,
   editRole,
@@ -535,6 +537,7 @@ function EditRow({
   saving,
 }: {
   player: ClanRosterPlayer;
+  index: number;
   roles: string[];
   editTag: string;
   editRole: string;
@@ -548,7 +551,7 @@ function EditRow({
 }) {
   return (
     <>
-      <td className="px-4 py-3 text-astral-300/40 font-mono text-xs">{player.player_name.substring(0, 1)}.</td>
+      <td className="px-4 py-3 text-astral-300/40 font-mono text-xs">{index}</td>
       <td className="px-4 py-3 text-astral-100 font-medium">{player.player_name}</td>
       <td className="px-4 py-3">
         <input
