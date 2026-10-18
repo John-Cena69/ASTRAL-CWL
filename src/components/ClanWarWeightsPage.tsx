@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import {
   AlertCircle,
-  Check,
   Clock3,
   CopyIcon,
   LoaderCircle,
   RefreshCw,
+  Save,
   Shield,
   Swords,
   Star,
@@ -84,7 +84,7 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
   const [weights, setWeights] = useState<ClanWarWeight[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [savingId, setSavingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [editingValue, setEditingValue] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -156,48 +156,50 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
     }
   };
 
-  const saveValue = async (weight: ClanWarWeight) => {
-    if (!supabase) return;
-    const raw = editingValue[weight.id]?.trim();
-    const value = raw === '' ? null : Number(raw);
-
-    if (value === null || value === undefined || !Number.isInteger(value) || value < 0) {
-      setError('Value must be a whole number of 0 or greater.');
+  const saveValues = async () => {
+    if (!supabase || saving) return;
+    const updates = weights
+      .filter((weight) => Object.prototype.hasOwnProperty.call(editingValue, weight.id))
+      .map((weight) => ({
+        player_tag: weight.player_tag,
+        value: Number(editingValue[weight.id]?.trim()),
+      }));
+    if (updates.length === 0) return;
+    if (updates.some((update) => !Number.isInteger(update.value) || update.value < 0)) {
+      setError('Every value must be a whole number of 0 or greater.');
       return;
     }
 
-    setSavingId(weight.id);
+    setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
-      const response = await fetch('/api/edit-war-weight', {
+      const response = await fetch('/api/edit-war-weights', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({
-          clan_tag: clanTag,
-          player_tag: weight.player_tag,
-          value,
-        }),
+        body: JSON.stringify({ clan_tag: resolvedClanTag, updates }),
       });
       const body = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
-        updated?: ClanWarWeight;
+        updated?: number;
+        failed?: string[];
       };
-      if (!response.ok) throw new Error(body.error || `Update failed (HTTP ${response.status}).`);
-      if (!body.ok) throw new Error(body.error || 'Update failed.');
-      setNotice(`Updated ${weight.player_name}: War Weight = ${body.updated?.war_weight ?? value * 5}.`);
-      delete editingValue[weight.id];
-      setEditingValue({ ...editingValue });
+      if (!response.ok) throw new Error(body.error || `Batch update failed (HTTP ${response.status}).`);
+      if (!body.ok) throw new Error(body.error || 'Batch update failed.');
+      if (body.failed?.length) throw new Error(`Could not update: ${body.failed.join(', ')}`);
+      setNotice(`Updated ${body.updated ?? updates.length} war weight(s).`);
+      setEditingValue({});
       await loadWeights();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Update failed.');
+      setError(err instanceof Error ? err.message : 'Batch update failed.');
     } finally {
-      setSavingId(null);
+      setSaving(false);
     }
   };
 
@@ -208,7 +210,7 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
 
   useEffect(() => {
     void loadWeights();
-  }, [clanTag]);
+  }, [resolvedClanTag]);
 
   const totalWeight = weights.reduce((sum, w) => sum + (w.war_weight ?? 0), 0);
 
@@ -222,7 +224,7 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
             <p className="text-xs text-gold-400/80 font-mono">{clanTag}</p>
           </div>
           <p className="mt-1 text-sm text-astral-300/60">
-            War roster sorted by map position. WAR WEIGHT = VALUE × 5. Only VALUE is editable.
+            War roster order is shown in the first column. WAR WEIGHT = VALUE × 5. Only VALUE is editable.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
@@ -237,6 +239,15 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
             className="astral-btn-ghost" title="Fetch current war from CoC API and sync war weights">
             {syncing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             {syncing ? 'Syncing...' : 'Sync War Weights'}
+          </button>
+          <button
+            onClick={() => void saveValues()}
+            disabled={saving || Object.keys(editingValue).length === 0}
+            className="astral-btn-primary"
+            title="Save all edited war weights"
+          >
+            {saving ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {saving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </div>
@@ -314,7 +325,6 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
                   <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Town Hall</th>
                   <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Value</th>
                   <th className="px-4 py-3 text-left text-astral-300/60 font-medium">War Weight</th>
-                  <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Map Position</th>
                   <th className="px-4 py-3 text-right text-astral-300/60 font-medium w-24">Action</th>
                 </tr>
               </thead>
@@ -327,7 +337,7 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
                       key={w.id}
                       className="border-t border-astral-700/15 hover:bg-astral-700/10 transition-colors group"
                     >
-                      <td className="px-4 py-3 text-astral-300/40 font-mono text-xs">{w.map_position ?? idx + 1}</td>
+                      <td className="px-4 py-3 text-astral-300/40 font-mono text-xs">{idx + 1}</td>
                       <td className="px-4 py-3 text-astral-100 font-medium">{w.player_name}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5">
@@ -346,23 +356,9 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
                               onChange={(e) => setEditingValue({ ...editingValue, [w.id]: e.target.value })}
                               className="astral-input w-24 text-xs"
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') void saveValue(w);
                                 if (e.key === 'Escape') cancelEdit(w.id);
                               }}
                             />
-                            <button
-                              type="button"
-                              onClick={() => void saveValue(w)}
-                              disabled={savingId === w.id}
-                              className="p-1.5 text-emerald-300/80 hover:text-emerald-200 hover:bg-emerald-500/10 rounded-lg disabled:opacity-50"
-                              title="Save"
-                            >
-                              {savingId === w.id ? (
-                                <LoaderCircle className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <Check className="w-4 h-4" />
-                              )}
-                            </button>
                             <button
                               type="button"
                               onClick={() => cancelEdit(w.id)}
@@ -382,7 +378,6 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
                       <td className="px-4 py-3 text-astral-100 font-mono text-gold-300">
                         {warWeight ?? '—'}
                       </td>
-                      <td className="px-4 py-3 text-astral-100 font-mono">{w.map_position ?? '—'}</td>
                       <td className="px-4 py-3 text-right">
                         {isEditing ? null : (
                           <button
