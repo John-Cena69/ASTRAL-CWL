@@ -66,6 +66,27 @@ function isDeveloper(auth: AuthResult): boolean {
   return auth.ok === true && auth.role === 'Developer';
 }
 
+function isManagement(auth: AuthResult): boolean {
+  return auth.ok === true && ['Developer', 'Admin'].includes(auth.role ?? '');
+}
+
+async function canAccessClanPage(
+  req: { url: string; headers: Record<string, string | string[] | undefined> },
+  clanTag: string,
+  pageKey: 'roster' | 'clans' | 'accounts' | 'wars' | 'clan_home' | 'war_weights' | 'user_management'
+): Promise<boolean> {
+  const authHeader = getHeader(req, 'authorization');
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!token || !URL || !ANON_KEY) return false;
+  const client = createClient(URL, ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+  const { data, error } = await client.rpc('can_access_clan_page', {
+    requested_clan_tag: clanTag,
+    requested_page_key: pageKey,
+  });
+  return !error && data === true;
+}
 /* ───────────────────── body helpers ───────────────────── */
 
 function readJsonBody(req: { body?: unknown }): Record<string, unknown> {
@@ -214,6 +235,7 @@ async function handleTrackedClans(req: { method?: string; url: string; headers: 
     } catch (error) {
       send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Failed to load clans.' });
     }
+
     return;
   }
 
@@ -266,6 +288,78 @@ async function handleTrackedClans(req: { method?: string; url: string; headers: 
   send(res, 405, { ok: false, error: 'Use GET, POST, or DELETE.' });
 }
 
+// GET/POST /api/access-management — manage allowlisted roles and per-clan page rules
+async function handleAccessManagement(
+  req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown },
+  res: { status: (code: number) => { json: (body: unknown) => void } },
+  auth: AuthResult
+): Promise<void> {
+  if (!isManagement(auth)) {
+    send(res, 403, { ok: false, error: 'Developer or Admin role required.' });
+    return;
+  }
+  const supabase = adminClient();
+  if (req.method === 'GET') {
+    const [{ data: users, error: usersError }, { data: clans, error: clansError }, { data: permissions, error: permissionsError }] = await Promise.all([
+      supabase.from('allowed_user_ids').select('discord_user_id, role, created_at').order('created_at'),
+      supabase.from('family_clans').select('clan_tag, clan_name').order('clan_name'),
+      supabase.from('page_permissions').select('clan_tag, role, page_key, allowed').order('clan_tag'),
+    ]);
+    const error = usersError || clansError || permissionsError;
+    if (error) {
+      send(res, 500, { ok: false, error: error.message });
+      return;
+    }
+    const roles = [...new Set((users ?? []).map((user) => user.role).filter(Boolean))];
+    send(res, 200, { ok: true, users: users ?? [], clans: clans ?? [], permissions: permissions ?? [], roles });
+    return;
+  }
+  if (req.method !== 'POST') {
+    send(res, 405, { ok: false, error: 'Use GET or POST.' });
+    return;
+  }
+  const body = readJsonBody(req);
+  const action = String(body.action ?? '');
+  if (action === 'save_user') {
+    const discordUserId = String(body.discord_user_id ?? '').trim();
+    const role = String(body.role ?? '').trim();
+    if (!discordUserId || !role) {
+      send(res, 400, { ok: false, error: 'Discord user ID and role are required.' });
+      return;
+    }
+    const { error } = await supabase.from('allowed_user_ids').upsert({ discord_user_id: discordUserId, role }, { onConflict: 'discord_user_id' });
+    if (error) {
+      send(res, 500, { ok: false, error: error.message });
+      return;
+    }
+    send(res, 200, { ok: true });
+    return;
+  }
+  if (action === 'save_permission') {
+    const clanTag = String(body.clan_tag ?? '').trim();
+    const role = String(body.role ?? '').trim();
+    const pageKey = String(body.page_key ?? '').trim();
+    if (!clanTag || !role || !['roster', 'clans', 'accounts', 'wars', 'clan_home', 'war_weights', 'user_management'].includes(pageKey)) {
+      send(res, 400, { ok: false, error: 'Clan, role, and a valid page are required.' });
+      return;
+    }
+    const { error } = await supabase.from('page_permissions').upsert({
+      clan_tag: clanTag,
+      role,
+      page_key: pageKey,
+      allowed: body.allowed === true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'clan_tag,role,page_key' });
+    if (error) {
+      send(res, 500, { ok: false, error: error.message });
+      return;
+    }
+    send(res, 200, { ok: true });
+    return;
+  }
+  send(res, 400, { ok: false, error: 'Unknown management action.' });
+}
+
 // GET /api/clan-roster?clan_tag=#TAG — roster for clan Home page
 async function handleClanRoster(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined> }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
   if (req.method !== 'GET') {
@@ -281,6 +375,10 @@ async function handleClanRoster(req: { method?: string; url: string; headers: Re
   try {
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, rawTag);
+    if (!await canAccessClanPage(req, clanTag, 'clan_home')) {
+      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+      return;
+    }
     const { data, error } = await supabase
       .from('clan_players')
       .select('id, player_name, player_tag, discord_id, town_hall, role, status, join_date, days_in_clan, war_weight, updated_date')
@@ -325,6 +423,10 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
   try {
     const supabase = adminClient();
     const resolvedClanTag = await resolveClanTag(supabase, clanTagRaw);
+    if (!await canAccessClanPage(req, resolvedClanTag, 'clan_home')) {
+      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+      return;
+    }
 
     // Ensure the clan exists in family_clans (foreign key parent)
     const clanTag = await ensureClanParent(supabase, resolvedClanTag);
@@ -419,6 +521,10 @@ async function handleEditClanPlayer(req: { method?: string; url: string; headers
   try {
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
+    if (!await canAccessClanPage(req, clanTag, 'clan_home')) {
+      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+      return;
+    }
     const playerTag = `#${playerTagRaw.toUpperCase().replace(/^#+/, '')}`;
 
     const updates: Record<string, unknown> = {};
@@ -512,6 +618,10 @@ async function handleEditClanPlayers(req: { method?: string; url: string; header
   try {
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
+    if (!await canAccessClanPage(req, clanTag, 'clan_home')) {
+      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+      return;
+    }
     const now = new Date();
     const updated: string[] = [];
     const failed: string[] = [];
@@ -660,6 +770,10 @@ async function handleWarWeights(req: { method?: string; url: string; headers: Re
   try {
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, rawTag);
+    if (!await canAccessClanPage(req, clanTag, 'war_weights')) {
+      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+      return;
+    }
     const { data, error } = await supabase
       .from('war_weights')
       .select('id, player_name, player_tag, town_hall, value, war_weight, map_position, updated_date')
@@ -693,6 +807,10 @@ async function handleSyncWarWeights(req: { method?: string; url: string; headers
   try {
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
+    if (!await canAccessClanPage(req, clanTag, 'war_weights')) {
+      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+      return;
+    }
     let war;
     try {
       war = await getCurrentWar(clanTag);
@@ -785,6 +903,10 @@ async function handleEditWarWeight(req: { method?: string; url: string; headers:
   try {
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
+    if (!await canAccessClanPage(req, clanTag, 'clan_home')) {
+      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+      return;
+    }
     const playerTag = `#${playerTagRaw.toUpperCase().replace(/^#+/, '')}`;
 
     try {
@@ -853,6 +975,10 @@ async function handleEditWarWeights(req: { method?: string; url: string; headers
   try {
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
+    if (!await canAccessClanPage(req, clanTag, 'war_weights')) {
+      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+      return;
+    }
     const now = new Date().toISOString();
     let updated = 0;
     const failed: string[] = [];
@@ -1244,10 +1370,27 @@ export default async function handler(req: unknown, res: {
     path = String(r.query?.slug ?? '');
   }
 
+  const globalPageByPath: Record<string, 'roster' | 'clans' | 'accounts' | 'wars'> = {
+    'tracked-clans': 'clans',
+    'cwl-clans': 'clans',
+    'sync-fillers': 'accounts',
+    'sync-wars': 'wars',
+  };
+  const globalPage = globalPageByPath[path];
+  if (globalPage && !(auth.ok && auth.role === 'Developer' && !getHeader(r, 'authorization'))) {
+    if (!await canAccessClanPage(r, '*', globalPage)) {
+      send(res, 403, { ok: false, error: 'You do not have access to this page.' });
+      return;
+    }
+  }
+
   // Route dispatch
   switch (path) {
     case 'tracked-clans':
       await handleTrackedClans(r, res, auth);
+      break;
+    case 'access-management':
+      await handleAccessManagement(r, res, auth);
       break;
     case 'clan-roster':
       await handleClanRoster(r, res);
