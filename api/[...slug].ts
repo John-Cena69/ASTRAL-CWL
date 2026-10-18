@@ -363,7 +363,7 @@ async function handleAccessManagement(
       ? body.clan_tags.map((tag) => String(tag).trim()).filter(Boolean)
       : [];
     const permissions = Array.isArray(body.permissions) ? body.permissions : [];
-    const pageKeys = ['roster', 'clans', 'accounts', 'wars', 'clan_home', 'war_weights', 'user_management'];
+    const pageKeys = ['cwl', 'fillers', 'wars', 'clan_management', 'clan_access'];
     if (!role || clanTags.length === 0 || permissions.length === 0) {
       send(res, 400, { ok: false, error: 'Role, at least one clan scope, and permissions are required.' });
       return;
