@@ -13,18 +13,13 @@ import { supabase } from '@/supabaseClient';
 import type { TrackedClan } from '@/types';
 
 const ACCESS_PAGES = [
-  ['roster', 'Main Roster'],
-  ['clans', 'Clan Management'],
-  ['accounts', 'Filler Accounts'],
+  ['cwl', 'CWL'],
+  ['fillers', 'Fillers'],
   ['wars', 'Wars'],
-  ['clan_access', 'Clan access (all pages)'],
-  ['clan_home', 'Clan Home'],
-  ['war_weights', 'War Weights'],
-  ['user_management', 'User Management'],
+  ['clan_management', 'Clan Management'],
+  ['clan_access', 'Clan access'],
 ] as const;
-const GLOBAL_ACCESS_PAGES = ACCESS_PAGES.filter(([key]) =>
-  ['roster', 'clans', 'accounts', 'wars', 'user_management'].includes(key)
-);
+const GLOBAL_PERMISSION_PAGES = ACCESS_PAGES.filter(([key]) => key !== 'clan_access');
 const CLAN_ACCESS_PAGES = ACCESS_PAGES.filter(([key]) => key === 'clan_access');
 
 function normalizeTagInput(value: string): string {
@@ -143,7 +138,7 @@ export default function DeveloperDashboard() {
   };
 
   const selectedAccessPages = permissionClans.includes('*')
-    ? GLOBAL_ACCESS_PAGES
+    ? GLOBAL_PERMISSION_PAGES
     : CLAN_ACCESS_PAGES;
 
   useEffect(() => {
@@ -164,7 +159,7 @@ export default function DeveloperDashboard() {
 
   const savePermissionMatrix = async () => {
     const scopes = permissionClans.length > 0 ? permissionClans : ['*'];
-    const pages = scopes.includes('*') ? GLOBAL_ACCESS_PAGES : CLAN_ACCESS_PAGES;
+    const pages = scopes.includes('*') ? GLOBAL_PERMISSION_PAGES : CLAN_ACCESS_PAGES;
     await saveAccess({
       action: 'save_permissions',
       role: permissionRole,
