@@ -135,21 +135,17 @@ async function resolveClanTag(supabase: SupabaseClient, inputTag: string): Promi
   return withHash;
 }
 
-async function ensureClanParent(supabase: SupabaseClient, clanTag: string): Promise<void> {
-  const { error: upsertError } = await supabase
+async function ensureClanParent(supabase: SupabaseClient, clanTag: string): Promise<string> {
+  const { data: parent, error: upsertError } = await supabase
     .from('family_clans')
-    .upsert({ clan_tag: clanTag, clan_name: clanTag }, { onConflict: 'clan_tag' });
-  if (upsertError) throw new Error(`Could not ensure clan ${clanTag} exists: ${upsertError.message}`);
-
-  const { data, error: selectError } = await supabase
-    .from('family_clans')
+    .upsert({ clan_tag: clanTag, clan_name: clanTag }, { onConflict: 'clan_tag' })
     .select('clan_tag')
-    .eq('clan_tag', clanTag)
-    .maybeSingle();
-  if (selectError) throw new Error(`Could not verify clan ${clanTag}: ${selectError.message}`);
-  if (!data?.clan_tag) {
+    .single();
+  if (upsertError) throw new Error(`Could not ensure clan ${clanTag} exists: ${upsertError.message}`);
+  if (!parent?.clan_tag) {
     throw new Error(`Clan ${clanTag} was not found after it was created.`);
   }
+  return parent.clan_tag;
 }
 
 function cocRoleToWebsiteRole(role: string): string {
@@ -290,10 +286,10 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
 
   try {
     const supabase = adminClient();
-    const clanTag = await resolveClanTag(supabase, clanTagRaw);
+    const resolvedClanTag = await resolveClanTag(supabase, clanTagRaw);
 
     // Ensure the clan exists in family_clans (foreign key parent)
-    await ensureClanParent(supabase, clanTag);
+    const clanTag = await ensureClanParent(supabase, resolvedClanTag);
 
     let clan;
     try {
@@ -435,6 +431,16 @@ async function handleEditClanPlayer(req: { method?: string; url: string; headers
       }
       updates.updated_date = new Date().toISOString();
 
+      const { data: parentCheck, error: parentCheckError } = await supabase
+        .from('family_clans')
+        .select('clan_tag')
+        .eq('clan_tag', clanTag)
+        .maybeSingle();
+      if (parentCheckError) throw new Error(`Could not verify clan ${clanTag}: ${parentCheckError.message}`);
+      if (!parentCheck?.clan_tag) {
+        throw new Error(`Clan parent ${clanTag} is missing immediately before adding the player.`);
+      }
+
       const { error, data } = await supabase
         .from('clan_players')
         .update(updates)
@@ -482,11 +488,11 @@ async function handleAddClanPlayer(req: { method?: string; url: string; headers:
 
   try {
     const supabase = adminClient();
-    const clanTag = await resolveClanTag(supabase, clanTagRaw);
+    const resolvedClanTag = await resolveClanTag(supabase, clanTagRaw);
     const playerTag = `#${cleanPlayer}`;
 
     // Ensure the clan exists in family_clans (foreign key parent)
-    await ensureClanParent(supabase, clanTag);
+    const clanTag = await ensureClanParent(supabase, resolvedClanTag);
 
     // Fetch player from CoC API
     let player;
@@ -513,6 +519,16 @@ async function handleAddClanPlayer(req: { method?: string; url: string; headers:
 
     const role = cocRoleToWebsiteRole(player.role ?? 'member');
     const now = new Date().toISOString();
+
+    const { data: parentCheck, error: parentCheckError } = await supabase
+      .from('family_clans')
+      .select('clan_tag')
+      .eq('clan_tag', clanTag)
+      .maybeSingle();
+    if (parentCheckError) throw new Error(`Could not verify clan ${clanTag}: ${parentCheckError.message}`);
+    if (!parentCheck?.clan_tag) {
+      throw new Error(`Clan parent ${clanTag} is missing immediately before adding the player.`);
+    }
 
     const { error, data } = await supabase
       .from('clan_players')
