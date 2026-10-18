@@ -60,6 +60,7 @@ function CopyButton({ value }: { value: string }) {
 }
 
 export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeightsPageProps) {
+  console.log('[ClanWarWeightsPage] clanTag:', clanTag, 'clanName:', clanName);
   const [weights, setWeights] = useState<ClanWarWeight[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
