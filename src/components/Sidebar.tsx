@@ -62,21 +62,20 @@ export const SIDEBAR_SECTIONS: SidebarSection[] = [
 interface SidebarProps {
   open: boolean;
   activePage: PageKey | ClanPage;
-  allowedRole: string | null;
   onNavigate: (page: PageKey | ClanPage) => void;
   onClose: () => void;
 }
 
-export default function Sidebar({ open, activePage, allowedRole, onNavigate, onClose }: SidebarProps) {
+export default function Sidebar({ open, activePage, onNavigate, onClose }: SidebarProps) {
   const [trackedClans, setTrackedClans] = useState<TrackedClan[]>([]);
   const [loading, setLoading] = useState(true);
   const [clansError, setClansError] = useState<string | null>(null);
   const [clanPageAccess, setClanPageAccess] = useState<Record<string, boolean>>({});
   const [globalPageAccess, setGlobalPageAccess] = useState<Record<string, boolean>>({
-    roster: true,
-    clans: true,
-    accounts: true,
+    cwl: true,
+    fillers: true,
     wars: true,
+    clan_management: false,
   });
 
   const isClanPageActive = (page: PageKey | ClanPage): page is ClanPage => {
@@ -93,7 +92,7 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
         return;
       }
       const client = supabase;
-      const globalKeys = ['roster', 'clans', 'accounts', 'wars'];
+      const globalKeys = ['cwl', 'fillers', 'wars', 'clan_management'];
       const globalAccess = await Promise.all(globalKeys.map(async (pageKey) => {
         const result = await client.rpc('can_access_clan_page', { requested_clan_tag: '*', requested_page_key: pageKey });
         return [pageKey, result.error ? true : result.data !== false] as const;
@@ -195,13 +194,13 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
           </button>
         </div>
         <nav className="p-3 space-y-5 overflow-y-auto">
-          {SIDEBAR_SECTIONS.map((section) => (
+          {SIDEBAR_SECTIONS.filter((section) => globalPageAccess[section.title.toLowerCase()] !== false).map((section) => (
             <div key={section.title}>
               <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-widest text-astral-300/40">
                 {section.title}
               </p>
               <div className="space-y-1">
-                {section.items.filter((item) => globalPageAccess[item.key] !== false).map((item) => {
+                {section.items.map((item) => {
                   const Icon = item.icon;
                   const active = activePage === item.key;
                   return (
@@ -225,7 +224,7 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
           ))}
 
           {/* Dynamic clan sections */}
-          {!loading && trackedClans.length > 0 && (
+          {!loading && trackedClans.length > 0 && globalPageAccess.cwl !== false && (
             <>
               <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-widest text-astral-300/40">
                 Clans
@@ -278,7 +277,7 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
         </nav>
 
         {/* Management section */}
-        {['Developer', 'Admin'].includes(allowedRole ?? '') && (
+        {globalPageAccess.clan_management && (
           <div className="px-3 pb-4 border-t border-astral-700/30 mt-auto">
             <button
               onClick={() => onNavigate('developer')}
