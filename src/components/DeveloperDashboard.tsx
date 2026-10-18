@@ -25,6 +25,15 @@ export default function DeveloperDashboard() {
   const [removingTag, setRemovingTag] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [accessUsers, setAccessUsers] = useState<{ discord_user_id: string; role: string }[]>([]);
+  const [accessClans, setAccessClans] = useState<TrackedClan[]>([]);
+  const [accessPermissions, setAccessPermissions] = useState<{ clan_tag: string; role: string; page_key: string; allowed: boolean }[]>([]);
+  const [accessUserId, setAccessUserId] = useState('');
+  const [accessRole, setAccessRole] = useState('Viewer');
+  const [permissionClan, setPermissionClan] = useState('');
+  const [permissionRole, setPermissionRole] = useState('Viewer');
+  const [permissionPage, setPermissionPage] = useState('clan_home');
+  const [permissionAllowed, setPermissionAllowed] = useState(true);
 
   const loadClans = async () => {
     if (!supabase) {
@@ -58,6 +67,51 @@ export default function DeveloperDashboard() {
   useEffect(() => {
     void loadClans();
   }, []);
+
+  const loadAccess = async () => {
+    if (!supabase) return;
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const response = await fetch('/api/access-management', {
+        headers: session.session?.access_token ? { Authorization: `Bearer ${session.session.access_token}` } : {},
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        users?: { discord_user_id: string; role: string }[];
+        clans?: TrackedClan[];
+        permissions?: { clan_tag: string; role: string; page_key: string; allowed: boolean }[];
+        error?: string;
+      };
+      if (!response.ok || !body.ok) throw new Error(body.error || 'Failed to load access settings.');
+      setAccessUsers(body.users ?? []);
+      setAccessClans(body.clans ?? []);
+      setAccessPermissions(body.permissions ?? []);
+      if (!permissionClan && body.clans?.[0]) setPermissionClan(body.clans[0].clan_tag);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load access settings.');
+    }
+  };
+
+  useEffect(() => {
+    void loadAccess();
+  }, []);
+
+  const saveAccess = async (payload: Record<string, unknown>) => {
+    if (!supabase) return;
+    const { data: session } = await supabase.auth.getSession();
+    const response = await fetch('/api/access-management', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(session.session?.access_token ? { Authorization: `Bearer ${session.session.access_token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+    const body = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (!response.ok || !body.ok) throw new Error(body.error || 'Failed to save access settings.');
+    await loadAccess();
+    setMessage('Access settings saved.');
+  };
 
   const handleAdd = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -134,6 +188,64 @@ export default function DeveloperDashboard() {
             <Shield className="w-6 h-6 text-gold-400" />
             <h2 className="font-display text-2xl font-bold text-white">Clan Management</h2>
           </div>
+
+          <section className="astral-card p-5 space-y-5">
+            <div>
+              <h3 className="font-semibold text-astral-100">Access Management</h3>
+              <p className="mt-1 text-sm text-astral-300/60">
+                Assign existing database roles to Discord users and control global or per-clan page access.
+              </p>
+            </div>
+            <div className="grid lg:grid-cols-2 gap-5">
+              <form
+                className="space-y-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void saveAccess({ action: 'save_user', discord_user_id: accessUserId, role: accessRole }).catch((err) => setError(err instanceof Error ? err.message : 'Failed to save user.'));
+                }}
+              >
+                <h4 className="text-sm font-medium text-gold-300">Allowed user role</h4>
+                <input value={accessUserId} onChange={(event) => setAccessUserId(event.target.value)} placeholder="Discord user ID" className="astral-input w-full" required />
+                <input value={accessRole} onChange={(event) => setAccessRole(event.target.value)} placeholder="Role (for example Viewer)" className="astral-input w-full" required />
+                <button className="astral-btn-primary" type="submit"><UserPlus className="w-4 h-4" /> Save User Role</button>
+              </form>
+              <form
+                className="space-y-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void saveAccess({ action: 'save_permission', clan_tag: permissionClan, role: permissionRole, page_key: permissionPage, allowed: permissionAllowed }).catch((err) => setError(err instanceof Error ? err.message : 'Failed to save permission.'));
+                }}
+              >
+                <h4 className="text-sm font-medium text-gold-300">Per-clan page permission</h4>
+                <select value={permissionClan} onChange={(event) => setPermissionClan(event.target.value)} className="astral-input w-full" required>
+                  <option value="*">All clans / global page</option>
+                  {accessClans.map((clan) => <option key={clan.clan_tag} value={clan.clan_tag}>{clan.clan_name}</option>)}
+                </select>
+                <input value={permissionRole} onChange={(event) => setPermissionRole(event.target.value)} placeholder="Role" className="astral-input w-full" required />
+                <select value={permissionPage} onChange={(event) => setPermissionPage(event.target.value)} className="astral-input w-full">
+                  <option value="roster">Main Roster</option>
+                  <option value="clans">Clan Management</option>
+                  <option value="accounts">Filler Accounts</option>
+                  <option value="wars">Wars</option>
+                  <option value="clan_home">Clan Home</option>
+                  <option value="war_weights">War Weights</option>
+                  <option value="user_management">User Management</option>
+                </select>
+                <label className="flex items-center gap-2 text-sm text-astral-200"><input type="checkbox" checked={permissionAllowed} onChange={(event) => setPermissionAllowed(event.target.checked)} /> Allow access</label>
+                <button className="astral-btn-primary" type="submit"><Shield className="w-4 h-4" /> Save Permission</button>
+              </form>
+            </div>
+            <div className="grid lg:grid-cols-2 gap-5 text-sm">
+              <div>
+                <h4 className="mb-2 text-astral-200">Allowed users</h4>
+                {accessUsers.map((user) => <div key={user.discord_user_id} className="flex justify-between border-t border-astral-700/20 py-2"><span className="font-mono">{user.discord_user_id}</span><span className="text-gold-300">{user.role}</span></div>)}
+              </div>
+              <div>
+                <h4 className="mb-2 text-astral-200">Configured permissions</h4>
+                {accessPermissions.map((permission) => <div key={`${permission.clan_tag}-${permission.role}-${permission.page_key}`} className="flex justify-between border-t border-astral-700/20 py-2"><span>{permission.clan_tag} · {permission.page_key}</span><span className={permission.allowed ? 'text-emerald-300' : 'text-rose-300'}>{permission.role}: {permission.allowed ? 'Allowed' : 'Denied'}</span></div>)}
+              </div>
+            </div>
+          </section>
           <p className="mt-1 text-sm text-astral-300/60">
             Developer only. Add or remove tracked clans that appear as sidebar categories.
           </p>
@@ -284,4 +396,3 @@ export default function DeveloperDashboard() {
     </main>
   );
 }
-
