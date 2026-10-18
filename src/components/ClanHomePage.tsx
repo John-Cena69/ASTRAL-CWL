@@ -103,6 +103,11 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
       setLoading(false);
       return;
     }
+    if (!clanTag || !clanTag.trim()) {
+      setError('Clan tag is required. Please select a clan from the sidebar.');
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
