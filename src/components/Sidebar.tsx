@@ -71,7 +71,7 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
   const [trackedClans, setTrackedClans] = useState<TrackedClan[]>([]);
   const [loading, setLoading] = useState(true);
   const [clansError, setClansError] = useState<string | null>(null);
-  const [clanPageAccess, setClanPageAccess] = useState<Record<string, { home: boolean; weights: boolean }>>({});
+  const [clanPageAccess, setClanPageAccess] = useState<Record<string, boolean>>({});
   const [globalPageAccess, setGlobalPageAccess] = useState<Record<string, boolean>>({
     roster: true,
     clans: true,
@@ -118,11 +118,11 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
               : [];
             setTrackedClans(clans);
             const accessEntries = await Promise.all(clans.map(async (clan) => {
-              const [home, weights] = await Promise.all([
-                client.rpc('can_access_clan_page', { requested_clan_tag: clan.clan_tag, requested_page_key: 'clan_home' }),
-                client.rpc('can_access_clan_page', { requested_clan_tag: clan.clan_tag, requested_page_key: 'war_weights' }),
-              ]);
-              return [clan.clan_tag, { home: home.error ? true : home.data !== false, weights: weights.error ? true : weights.data !== false }] as const;
+              const access = await client.rpc('can_access_clan_page', {
+                requested_clan_tag: clan.clan_tag,
+                requested_page_key: 'clan_access',
+              });
+              return [clan.clan_tag, access.error ? true : access.data !== false] as const;
             }));
             if (active) setClanPageAccess(Object.fromEntries(accessEntries));
           }
@@ -157,8 +157,10 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
       title: clan.clan_name,
       clanTag: clan.clan_tag,
       items: [
-        ...(clanPageAccess[clan.clan_tag]?.home ? [{ key: `clan-home:${clan.clan_tag}`, label: 'Home', page: 'home' as const }] : []),
-        ...(clanPageAccess[clan.clan_tag]?.weights ? [{ key: `clan-weights:${clan.clan_tag}`, label: 'War Weights', page: 'war-weights' as const }] : []),
+        ...(clanPageAccess[clan.clan_tag] ? [
+          { key: `clan-home:${clan.clan_tag}`, label: 'Home', page: 'home' as const },
+          { key: `clan-weights:${clan.clan_tag}`, label: 'War Weights', page: 'war-weights' as const },
+        ] : []),
       ],
     }));
   };
