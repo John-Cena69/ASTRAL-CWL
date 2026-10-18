@@ -85,6 +85,7 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingMode, setEditingMode] = useState(false);
   const [editingValue, setEditingValue] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -148,6 +149,8 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
       if (!response.ok) throw new Error(body.error || `Sync failed (HTTP ${response.status}).`);
       if (!body.ok) throw new Error(body.error || 'Sync failed.');
       setNotice(`Synced ${body.updated ?? 0} war weight(s) for ${clanName}.`);
+      setEditingMode(false);
+      setEditingValue({});
       await loadWeights();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sync failed.');
@@ -195,6 +198,7 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
       if (!body.ok) throw new Error(body.error || 'Batch update failed.');
       if (body.failed?.length) throw new Error(`Could not update: ${body.failed.join(', ')}`);
       setNotice(`Updated ${body.updated ?? updates.length} war weight(s).`);
+      setEditingMode(false);
       setEditingValue({});
       await loadWeights();
     } catch (err) {
@@ -209,6 +213,7 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
   }, [resolvedClanTag]);
 
   const totalWeight = weights.reduce((sum, w) => sum + (w.war_weight ?? 0), 0);
+  const hasChanges = Object.keys(editingValue).length > 0;
 
   return (
     <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-6">
@@ -225,25 +230,27 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
         </div>
         <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
           <button
-            onClick={() => void loadWeights()}
-            className="astral-btn-ghost" title="Refresh war weights">
-            <RefreshCw className="w-4 h-4" /> Refresh
-          </button>
-          <button
             onClick={() => void syncWeights()}
-            disabled={syncing}
-            className="astral-btn-ghost" title="Fetch current war from CoC API and sync war weights">
+            disabled={syncing || saving}
+            className="astral-btn-ghost" title="Sync war weights and refresh the table">
             {syncing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            {syncing ? 'Syncing...' : 'Sync War Weights'}
+            {syncing ? 'Syncing...' : 'Sync & Refresh'}
           </button>
           <button
-            onClick={() => void saveValues()}
-            disabled={saving || Object.keys(editingValue).length === 0}
+            onClick={() => {
+              if (editingMode && hasChanges) {
+                void saveValues();
+              } else {
+                setEditingMode((enabled) => !enabled);
+                if (editingMode) setEditingValue({});
+              }
+            }}
+            disabled={saving || syncing}
             className="astral-btn-primary"
-            title="Save all edited war weights"
+            title={editingMode && hasChanges ? 'Save all edited war weights' : 'Enable editing'}
           >
-            {saving ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {saving ? 'Saving...' : 'Save Changes'}
+            {saving ? <LoaderCircle className="w-4 h-4 animate-spin" /> : editingMode && hasChanges ? <Save className="w-4 h-4" /> : null}
+            {saving ? 'Saving...' : editingMode && hasChanges ? 'Save Changes' : 'Edit'}
           </button>
         </div>
       </div>
@@ -345,10 +352,11 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
                           type="number"
                           min="0"
                           step="200"
+                          readOnly={!editingMode}
                           aria-label={`Value for ${w.player_name}`}
                           value={editingValue[w.id] ?? String(w.value ?? '')}
                           onChange={(e) => setEditingValue({ ...editingValue, [w.id]: e.target.value })}
-                          className="astral-input w-24 text-xs"
+                          className={`astral-input w-24 text-xs ${!editingMode ? 'opacity-70 cursor-default' : ''}`}
                         />
                       </td>
                       <td className="px-4 py-3 text-astral-100 font-mono text-gold-300">
