@@ -1033,6 +1033,21 @@ export default async function handler(req: unknown, res: {
       query?: Record<string, string | string[] | undefined>;
     };
 
+    // env-check is public (diagnostic tool, no auth needed)
+    const pathCheck = r.url?.split('?')[0] ?? '';
+    if (pathCheck.endsWith('/env-check')) {
+      send(res, 200, {
+        ok: true,
+        env: {
+          SUPABASE_URL: !!URL,
+          SUPABASE_SERVICE_ROLE_KEY: !!SERVICE_KEY,
+          SUPABASE_ANON_KEY: !!ANON_KEY,
+          CRON_SECRET: !!CRON_SECRET,
+        },
+      });
+      return;
+    }
+
     const auth = await authorize(r);
   if (auth.ok === false) {
     send(res, 401, { ok: false, error: auth.message });
@@ -1090,17 +1105,6 @@ export default async function handler(req: unknown, res: {
       break;
     case 'cwl-clans':
       await handleCwlClans(r, res, auth);
-      break;
-    case 'env-check':
-      send(res, 200, {
-        ok: true,
-        env: {
-          SUPABASE_URL: !!URL,
-          SUPABASE_SERVICE_ROLE_KEY: !!SERVICE_KEY,
-          SUPABASE_ANON_KEY: !!ANON_KEY,
-          CRON_SECRET: !!CRON_SECRET,
-        },
-      });
       break;
     default:
       send(res, 404, { ok: false, error: `Not found. Path: ${path || '(empty)'}` });
