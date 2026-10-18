@@ -167,10 +167,19 @@ function cocRoleToWebsiteRole(role: string): string {
 function normalizeRoleForComparison(role: string): string {
   const r = role.toLowerCase().trim();
   if (r === 'leader') return 'leader';
-  if (r === 'co-leader' || r === 'coleader' || r === 'rep') return 'coleader';
-  if (r === 'elder' || r === 'staff' || r === 'admin') return 'elder';
+  if (r === 'co-leader' || r === 'coleader' || r === 'rep') return 'co-leader';
+  if (r === 'staff' || r === 'elder' || r === 'admin') return 'elder';
   if (r === 'member') return 'member';
   if (r === 'filler') return 'filler';
+  return r;
+}
+
+function normalizeRoleForSorting(role: string): string {
+  const r = role.toLowerCase().trim();
+  if (r === 'co-leader' || r === 'coleader') return 'co-leader';
+  if (r === 'rep') return 'rep';
+  if (r === 'staff') return 'staff';
+  if (r === 'elder' || r === 'admin') return 'elder';
   return r;
 }
 
@@ -178,7 +187,6 @@ const ROSTER_ROLE_ORDER: Record<string, number> = {
   leader: 0,
   rep: 1,
   'co-leader': 2,
-  coleader: 2,
   staff: 3,
   elder: 4,
   member: 5,
@@ -280,8 +288,8 @@ async function handleClanRoster(req: { method?: string; url: string; headers: Re
     if (error) throw new Error(error.message);
     const players = [...(data ?? [])].sort((a, b) => {
       const roleDifference =
-        (ROSTER_ROLE_ORDER[normalizeRoleForComparison(a.role ?? '')] ?? 99) -
-        (ROSTER_ROLE_ORDER[normalizeRoleForComparison(b.role ?? '')] ?? 99);
+        (ROSTER_ROLE_ORDER[normalizeRoleForSorting(a.role ?? '')] ?? 99) -
+        (ROSTER_ROLE_ORDER[normalizeRoleForSorting(b.role ?? '')] ?? 99);
       if (roleDifference !== 0) return roleDifference;
       const townHallDifference = (b.town_hall ?? 0) - (a.town_hall ?? 0);
       if (townHallDifference !== 0) return townHallDifference;
@@ -331,111 +339,64 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
 
     const members = clan.memberList ?? [];
     const tags = members.map((m) => m.tag);
+    const membersByTag = new Map(members.map((member) => [member.tag, member]));
     const discordIdMap: Record<string, string> = {};
-    try {
-      const { data: linked, error: linkedError } = await supabase
-        .from('playerbase')
-        .select('player_tag, discord_id')
-        .in('player_tag', tags);
-      if (!linkedError && linked) {
-        for (const item of linked) {
-          discordIdMap[item.player_tag] = item.discord_id ?? '';
+    if (tags.length > 0) {
+      try {
+        const { data: linked, error: linkedError } = await supabase
+          .from('playerbase')
+          .select('player_tag, discord_id')
+          .in('player_tag', tags);
+        if (!linkedError && linked) {
+          for (const item of linked) {
+            discordIdMap[item.player_tag] = item.discord_id ?? '';
+          }
         }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
 
     const { data: existing } = await supabase
       .from('clan_players')
       .select('player_tag, role, join_date')
       .eq('clan_tag', clanTag);
-    const existingByTag = new Map<string, { role: string; join_date: string | null }>();
-    if (existing) {
-      for (const row of existing) {
-        existingByTag.set(row.player_tag, { role: row.role, join_date: row.join_date });
-      }
-    }
 
     const now = new Date();
-    const oneDayMs = 24 * 60 * 60 * 1000;
 
-    const upserts = members.map((member) => {
-      const existingRow = existingByTag.get(member.tag);
-      const igRole = cocRoleToWebsiteRole(member.role);
-      const previousRole = existingRow?.role ?? '';
-      const previousJoinDate = existingRow?.join_date ?? null;
-      const joinDate = previousJoinDate ?? now.toISOString();
-      const joinTime = new Date(joinDate).getTime();
-      const daysInClan = previousJoinDate
-        ? Math.floor((now.getTime() - joinTime) / oneDayMs)
-        : 0;
-
-      let status: string;
-      const normalizedPrevious = normalizeRoleForComparison(previousRole);
-      const normalizedIg = normalizeRoleForComparison(member.role);
-
-      if (normalizedIg === 'filler') {
-        status = 'All good';
-      } else if (previousRole && normalizedPrevious !== '' && normalizedPrevious !== normalizedIg) {
-        status = 'Role Mismatch';
-      } else {
-        status = 'All good';
-      }
-
-      return {
-        clan_tag: clanTag,
-        player_name: member.name,
-        player_tag: member.tag,
-        discord_id: discordIdMap[member.tag] ?? null,
-        town_hall: member.town_hall ?? null,
-        role: previousRole || igRole,
-        status,
-        join_date: joinDate,
-        days_in_clan: daysInClan,
-        war_weight: null,
-        updated_date: now.toISOString(),
-      };
-    });
-
-    const currentTags = new Set(members.map((member) => member.tag));
-    const missingTags = (existing ?? [])
-      .map((row) => row.player_tag)
-      .filter((playerTag) => !currentTags.has(playerTag));
-
-    const CHUNK = 50;
     let updated = 0;
-    if (members.length === 0) {
-      for (let i = 0; i < missingTags.length; i += CHUNK) {
-        const chunk = missingTags.slice(i, i + CHUNK);
-        const { error } = await supabase
-          .from('clan_players')
-          .update({ status: 'Missing from Clan', updated_date: now.toISOString() })
-          .eq('clan_tag', clanTag)
-          .in('player_tag', chunk);
-        if (error) throw new Error(error.message);
-      }
-      send(res, 200, { ok: true, updated: 0, missing: missingTags.length, message: 'No members found.' });
-      return;
-    }
+    let missing = 0;
+    let roleMismatches = 0;
+    for (const player of existing ?? []) {
+      const member = membersByTag.get(player.player_tag);
+      const status = !member
+        ? 'Missing from Clan'
+        : normalizeRoleForComparison(player.role ?? '') === normalizeRoleForComparison(member.role)
+          ? 'All good'
+          : 'Role Mismatch';
+      if (status === 'Missing from Clan') missing += 1;
+      if (status === 'Role Mismatch') roleMismatches += 1;
 
-    for (let i = 0; i < upserts.length; i += CHUNK) {
-      const chunk = upserts.slice(i, i + CHUNK);
-      const { error } = await supabase.from('clan_players').upsert(chunk, { onConflict: 'clan_tag, player_tag' });
-      if (error) throw new Error(error.message);
-      updated += chunk.length;
-    }
-    for (let i = 0; i < missingTags.length; i += CHUNK) {
-      const chunk = missingTags.slice(i, i + CHUNK);
+      const updates = {
+        status,
+        updated_date: now.toISOString(),
+        ...(member
+          ? {
+              player_name: member.name,
+              discord_id: discordIdMap[member.tag] ?? null,
+              town_hall: member.town_hall ?? null,
+            }
+          : {}),
+      };
       const { error } = await supabase
         .from('clan_players')
-        .update({ status: 'Missing from Clan', updated_date: now.toISOString() })
+        .update(updates)
         .eq('clan_tag', clanTag)
-        .in('player_tag', chunk);
+        .eq('player_tag', player.player_tag);
       if (error) throw new Error(error.message);
+      updated += 1;
     }
-
-    send(res, 200, { ok: true, updated, clan_tag: clanTag, clan_name: clan.name });
+    send(res, 200, { ok: true, updated, missing, role_mismatches: roleMismatches, clan_tag: clanTag, clan_name: clan.name });
   } catch (error) {
     send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Sync failed.' });
   }
