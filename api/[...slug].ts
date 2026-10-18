@@ -657,7 +657,7 @@ async function handleSyncWarWeights(req: { method?: string; url: string; headers
     );
     const now = new Date().toISOString();
     const upserts = roster.map((member, index) => {
-      const th = member.townHallLevel ?? 0;
+      const th = member.townhallLevel ?? 0;
       const value = previousValues.get(member.tag) ?? 0;
       return {
         clan_tag: clanTag,
