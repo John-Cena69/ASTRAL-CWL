@@ -33,6 +33,24 @@ interface ClanSection {
   }[];
 }
 
+function normalizeTrackedClan(value: unknown): TrackedClan | null {
+  if (!value || typeof value !== 'object') return null;
+  const row = value as Record<string, unknown>;
+  const clanTag = typeof row.clan_tag === 'string'
+    ? row.clan_tag.trim()
+    : typeof row.clanTag === 'string'
+      ? row.clanTag.trim()
+      : '';
+  const clanName = typeof row.clan_name === 'string'
+    ? row.clan_name.trim()
+    : typeof row.clanName === 'string'
+      ? row.clanName.trim()
+      : '';
+
+  if (!clanTag || !clanName) return null;
+  return { clan_tag: clanTag, clan_name: clanName };
+}
+
 export const SIDEBAR_SECTIONS: SidebarSection[] = [
   { title: 'CWL', items: [
     { key: 'roster', label: 'Roster', icon: Shield },
@@ -76,8 +94,17 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (response.ok) {
-          const body = await response.json();
-          if (active && body.ok) setTrackedClans(body.clans ?? []);
+          const body = (await response.json()) as {
+            ok?: boolean;
+            clans?: unknown;
+            error?: string;
+          };
+          if (active && body.ok) {
+            const clans = Array.isArray(body.clans)
+              ? body.clans.map(normalizeTrackedClan).filter((clan): clan is TrackedClan => clan !== null)
+              : [];
+            setTrackedClans(clans);
+          }
           if (active && !body.ok) setClansError(body.error || 'Failed to load clans.');
         } else {
           setClansError(`HTTP ${response.status}`);
@@ -86,7 +113,13 @@ export default function Sidebar({ open, activePage, allowedRole, onNavigate, onC
         // Fall back to direct Supabase read
         try {
           const { data } = await supabase.from('family_clans').select('clan_tag, clan_name').order('clan_name');
-          if (active) setTrackedClans(data ?? []);
+          if (active) {
+            setTrackedClans(
+              (data ?? [])
+                .map(normalizeTrackedClan)
+                .filter((clan): clan is TrackedClan => clan !== null)
+            );
+          }
         } catch {
           // Ignore
         }
