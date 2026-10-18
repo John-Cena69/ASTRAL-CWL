@@ -64,7 +64,7 @@ async function authorize(req: { url: string; headers: Record<string, string | st
 }
 
 function isDeveloper(auth: AuthResult): boolean {
-  return auth.role === 'Developer';
+  return auth.ok === true && auth.role === 'Developer';
 }
 
 /* ───────────────────── body helpers ───────────────────── */
@@ -429,7 +429,7 @@ async function handleEditClanPlayer(req: { method?: string; url: string; headers
       if (body.join_date) {
         const now = new Date();
         const oneDayMs = 24 * 60 * 60 * 1000;
-        const joinTime = new Date(body.join_date).getTime();
+        const joinTime = new Date(String(body.join_date)).getTime();
         updates.days_in_clan = Math.floor((now.getTime() - joinTime) / oneDayMs);
       }
       updates.updated_date = new Date().toISOString();
