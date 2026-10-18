@@ -115,7 +115,12 @@ export interface CocClan {
   name: string;
   badgeUrls?: { small?: string; medium?: string; large?: string };
   warLeague?: { name: string };
-  memberList?: { tag: string; name: string; role: string }[];
+  memberList?: {
+    tag: string;
+    name: string;
+    role: string;
+    townHallLevel?: number;
+  }[];
 }
 
 /** Full clan profile (used by the Clans directory to auto-fill on add). */
