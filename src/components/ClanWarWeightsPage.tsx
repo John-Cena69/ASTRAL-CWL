@@ -344,6 +344,7 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
                         <input
                           type="number"
                           min="0"
+                          step="200"
                           aria-label={`Value for ${w.player_name}`}
                           value={editingValue[w.id] ?? String(w.value ?? '')}
                           onChange={(e) => setEditingValue({ ...editingValue, [w.id]: e.target.value })}
