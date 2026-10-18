@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import {
   AlertCircle,
   CopyIcon,
-  Edit2,
   LoaderCircle,
   Plus,
   RefreshCw,
@@ -91,8 +90,8 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
   const [players, setPlayers] = useState<ClanRosterPlayer[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [savingId, setSavingId] = useState<string | null>(null);
+  const [editingMode, setEditingMode] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -102,9 +101,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
   const [addingPlayer, setAddingPlayer] = useState(false);
 
   // Edit form state
-  const [editTag, setEditTag] = useState('');
-  const [editRole, setEditRole] = useState('');
-  const [editJoinDate, setEditJoinDate] = useState('');
+  const [editingValues, setEditingValues] = useState<Record<string, { tag: string; role: string; joinDate: string }>>({});
 
   const loadRoster = async () => {
     if (!supabase) {
@@ -210,64 +207,92 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
     }
   };
 
-  const startEdit = (player: ClanRosterPlayer) => {
-    setEditingId(player.id);
-    setEditTag(player.player_tag.replace(/^#/, ''));
-    setEditRole(player.role ?? '');
-    setEditJoinDate(player.join_date ? new Date(player.join_date).toISOString().split('T')[0] : '');
+  const startEdit = () => {
+    const values: Record<string, { tag: string; role: string; joinDate: string }> = {};
+    for (const player of players) {
+      values[player.id] = {
+        tag: player.player_tag.replace(/^#/, ''),
+        role: player.role ?? '',
+        joinDate: player.join_date ? new Date(player.join_date).toISOString().split('T')[0] : '',
+      };
+    }
+    setEditingValues(values);
+    setEditingMode(true);
     setError(null);
   };
 
   const cancelEdit = () => {
-    setEditingId(null);
-    setEditTag('');
-    setEditRole('');
-    setEditJoinDate('');
+    setEditingMode(false);
+    setEditingValues({});
   };
 
-  const saveEdit = async (player: ClanRosterPlayer) => {
-    if (!supabase) return;
-    const tag = editTag.trim();
-    const role = editRole.trim();
-    const joinDate = editJoinDate.trim();
+  const updateEditingValue = (id: string, field: 'tag' | 'role' | 'joinDate', value: string) => {
+    setEditingValues((current) => ({
+      ...current,
+      [id]: { ...current[id], [field]: value },
+    }));
+  };
 
-    if (!tag || !role) {
-      setError('Player Tag and Role are both required.');
+  const saveEdits = async () => {
+    if (!supabase || saving) return;
+    const updates = players
+      .filter((player) => {
+        const draft = editingValues[player.id];
+        return draft && (
+          draft.tag.trim() !== player.player_tag.replace(/^#/, '') ||
+          draft.role.trim() !== (player.role ?? '') ||
+          draft.joinDate !== (player.join_date ? new Date(player.join_date).toISOString().split('T')[0] : '')
+        );
+      })
+      .map((player) => {
+        const draft = editingValues[player.id];
+        return {
+          player_tag: player.player_tag,
+          new_player_tag: `#${draft.tag.trim()}`,
+          role: draft.role.trim(),
+          join_date: draft.joinDate.trim(),
+        };
+      });
+    if (updates.length === 0) {
+      cancelEdit();
       return;
     }
 
-    setSavingId(player.id);
+    if (updates.some((update) => !update.new_player_tag || !update.role || !update.join_date)) {
+      setError('Every player must have a tag, role, and join date.');
+      return;
+    }
+
+    setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
-      const response = await fetch('/api/edit-clan-player', {
+      const response = await fetch('/api/edit-clan-players', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({
-          clan_tag: clanTag,
-          player_tag: player.player_tag,
-          new_player_tag: `#${tag}`,
-          role,
-          ...(joinDate ? { join_date: joinDate } : {}),
-        }),
+        body: JSON.stringify({ clan_tag: resolvedClanTag, updates }),
       });
       const body = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
+        updated?: number;
+        failed?: string[];
       };
-      if (!response.ok) throw new Error(body.error || `Update failed (HTTP ${response.status}).`);
-      if (!body.ok) throw new Error(body.error || 'Update failed.');
-      setNotice(`Updated ${player.player_name}.`);
+      if (!response.ok) throw new Error(body.error || `Batch update failed (HTTP ${response.status}).`);
+      if (!body.ok) throw new Error(body.error || 'Batch update failed.');
+      if (body.failed?.length) throw new Error(`Could not update: ${body.failed.join(', ')}`);
+      setNotice(`Updated ${body.updated ?? updates.length} player(s).`);
       cancelEdit();
       await loadRoster();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Update failed.');
+      setError(err instanceof Error ? err.message : 'Batch update failed.');
     } finally {
-      setSavingId(null);
+      setSaving(false);
     }
   };
 
@@ -290,8 +315,33 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
         </div>
         <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
           <button
+            onClick={() => {
+              if (editingMode) {
+                if (Object.keys(editingValues).length > 0) void saveEdits();
+              } else {
+                startEdit();
+              }
+            }}
+            disabled={syncing || saving || players.length === 0}
+            className="astral-btn-primary"
+            title={editingMode ? 'Save all roster changes' : 'Enable roster editing'}
+          >
+            {saving ? <LoaderCircle className="w-4 h-4 animate-spin" /> : editingMode ? <Save className="w-4 h-4" /> : null}
+            {saving ? 'Saving...' : editingMode ? 'Save Changes' : 'Edit'}
+          </button>
+          {editingMode && (
+            <button
+              onClick={cancelEdit}
+              disabled={saving}
+              className="astral-btn-ghost"
+              title="Discard roster edits"
+            >
+              <X className="w-4 h-4" /> Cancel
+            </button>
+          )}
+          <button
             onClick={() => void syncRoster()}
-            disabled={syncing}
+            disabled={syncing || editingMode}
             className="astral-btn-ghost" title="Validate website players against the current CoC roster">
             {syncing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             {syncing ? 'Validating...' : 'Validate Roster'}
@@ -406,32 +456,23 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
               </thead>
               <tbody>
                 {players.map((player, idx) => {
-                  const isEditing = editingId === player.id;
                   return (
                     <tr
                       key={player.id}
                       className="border-t border-astral-700/15 hover:bg-astral-700/10 transition-colors group"
                     >
-                      {isEditing ? (
+                      {editingMode ? (
                         <EditRow
                           player={player}
                           index={idx + 1}
                           roles={ROLE_OPTIONS}
-                          editTag={editTag}
-                          editRole={editRole}
-                          editJoinDate={editJoinDate}
-                          onTagChange={(e) => setEditTag(e.target.value)}
-                          onRoleChange={(e) => setEditRole(e.target.value)}
-                          onJoinDateChange={(e) => setEditJoinDate(e.target.value)}
-                          onSave={() => saveEdit(player)}
-                          onCancel={cancelEdit}
-                          saving={savingId === player.id}
+                          values={editingValues[player.id]}
+                          onChange={(field, value) => updateEditingValue(player.id, field, value)}
                         />
                       ) : (
                         <ViewRow
                           player={player}
                           index={idx + 1}
-                          onEdit={() => startEdit(player)}
                         />
                       )}
                     </tr>
@@ -449,7 +490,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
   );
 }
 
-function ViewRow({ player, index, onEdit }: { player: ClanRosterPlayer; index: number; onEdit: () => void }) {
+function ViewRow({ player, index }: { player: ClanRosterPlayer; index: number }) {
   return (
     <>
       <td className="px-4 py-3 text-astral-300/40 font-mono text-xs">
@@ -491,16 +532,7 @@ function ViewRow({ player, index, onEdit }: { player: ClanRosterPlayer; index: n
       <td className="px-4 py-3 text-astral-100 font-mono text-gold-300">
         {player.war_weight ?? '—'}
       </td>
-      <td className="px-4 py-3 text-right">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="p-1.5 text-gold-300/70 hover:text-gold-200 hover:bg-gold-500/10 rounded-lg"
-          title="Edit player"
-        >
-          <Edit2 className="w-4 h-4" />
-        </button>
-      </td>
+      <td className="px-4 py-3 text-right text-astral-300/40">—</td>
     </>
   );
 }
@@ -509,29 +541,17 @@ function EditRow({
   player,
   index,
   roles,
-  editTag,
-  editRole,
-  editJoinDate,
-  onTagChange,
-  onRoleChange,
-  onJoinDateChange,
-  onSave,
-  onCancel,
-  saving,
+  values,
+  onChange,
 }: {
   player: ClanRosterPlayer;
   index: number;
   roles: string[];
-  editTag: string;
-  editRole: string;
-  editJoinDate: string;
-  onTagChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onRoleChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
-  onJoinDateChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onSave: () => void;
-  onCancel: () => void;
-  saving: boolean;
+  values?: { tag: string; role: string; joinDate: string };
+  onChange: (field: 'tag' | 'role' | 'joinDate', value: string) => void;
 }) {
+  if (!values) return null;
+
   return (
     <>
       <td className="px-4 py-3 text-astral-300/40 font-mono text-xs">{index}</td>
@@ -539,8 +559,8 @@ function EditRow({
       <td className="px-4 py-3">
         <input
           type="text"
-          value={editTag}
-          onChange={onTagChange}
+          value={values.tag}
+          onChange={(event) => onChange('tag', event.target.value.toUpperCase())}
           className="astral-input w-full text-xs uppercase font-mono"
           placeholder="TAG"
         />
@@ -554,8 +574,8 @@ function EditRow({
       <td className="px-4 py-3 text-astral-100">{player.town_hall ?? '—'}</td>
       <td className="px-4 py-3">
         <select
-          value={editRole}
-          onChange={onRoleChange}
+          value={values.role}
+          onChange={(event) => onChange('role', event.target.value)}
           className="astral-input w-full text-xs"
         >
           {roles.map((role) => (
@@ -577,33 +597,15 @@ function EditRow({
       <td className="px-4 py-3 text-astral-100 font-mono">
         <input
           type="date"
-          value={editJoinDate}
-          onChange={onJoinDateChange}
+          value={values.joinDate}
+          onChange={(event) => onChange('joinDate', event.target.value)}
           className="astral-input w-full text-xs"
         />
       </td>
       <td className="px-4 py-3 text-astral-100 font-mono text-gold-300">
         {player.war_weight ?? '—'}
       </td>
-      <td className="px-4 py-3 text-right flex gap-1">
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={saving}
-          className="p-1.5 text-emerald-300/80 hover:text-emerald-200 hover:bg-emerald-500/10 rounded-lg disabled:opacity-50"
-          title="Save"
-        >
-          {saving ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="p-1.5 text-astral-300/70 hover:text-white hover:bg-astral-700/30 rounded-lg"
-          title="Cancel"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </td>
+      <td className="px-4 py-3 text-right text-astral-300/40">—</td>
     </>
   );
 }
