@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
   AlertCircle,
-  Clock3,
   CopyIcon,
   Edit2,
   LoaderCircle,
@@ -10,8 +9,6 @@ import {
   Save,
   Shield,
   Star,
-  Swords,
-  Trash2,
   X,
 } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
@@ -33,15 +30,6 @@ const STATUS_STYLES: Record<string, string> = {
   'Missing from Clan': 'bg-rose-500/15 text-rose-300 border-rose-500/30',
   'Role Mismatch': 'bg-amber-500/15 text-amber-300 border-amber-500/30',
 };
-
-function formatDate(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
 
 interface ClanHomePageProps {
   clanTag: string;
@@ -297,21 +285,16 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
             <p className="text-xs text-gold-400/80 font-mono">{clanTag}</p>
           </div>
           <p className="mt-1 text-sm text-astral-300/60">
-            Clan roster — synced manually via the button below. Join Date is hidden but drives Days in Clan.
+            Website roster validated against the current in-game roster. Join Date is hidden but drives Days in Clan.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
           <button
-            onClick={() => void loadRoster()}
-            className="astral-btn-ghost" title="Refresh roster">
-            <RefreshCw className="w-4 h-4" /> Refresh
-          </button>
-          <button
             onClick={() => void syncRoster()}
             disabled={syncing}
-            className="astral-btn-ghost" title="Fetch latest roster from CoC API and sync to database">
+            className="astral-btn-ghost" title="Validate website players against the current CoC roster">
             {syncing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            {syncing ? 'Syncing...' : 'Sync Roster'}
+            {syncing ? 'Validating...' : 'Validate Roster'}
           </button>
           <button
             onClick={() => setShowAddPlayer((prev) => !prev)}
@@ -401,7 +384,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
         <div className="astral-card p-12 text-center">
           <Shield className="w-8 h-8 mx-auto text-astral-300/40" />
           <p className="mt-3 text-astral-200">No roster data yet.</p>
-          <p className="mt-1 text-sm text-astral-300/50">Click "Sync Roster" to fetch members from the CoC API.</p>
+          <p className="mt-1 text-sm text-astral-300/50">Click "Validate Roster" to check website players against the CoC API.</p>
         </div>
       ) : (
         <div className="astral-card overflow-hidden">
