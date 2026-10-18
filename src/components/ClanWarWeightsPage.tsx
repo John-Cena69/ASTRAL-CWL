@@ -60,7 +60,27 @@ function CopyButton({ value }: { value: string }) {
 }
 
 export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeightsPageProps) {
-  console.log('[ClanWarWeightsPage] clanTag:', clanTag, 'clanName:', clanName);
+  console.log('[ClanWarWeightsPage] clanTag prop:', clanTag, 'clanName prop:', clanName);
+
+  // Fallback: read clan_tag from URL query params (?clan_tag=#TAG)
+  const [urlClanTag, setUrlClanTag] = useState<string>('');
+
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tag = params.get('clan_tag');
+      if (tag) {
+        setUrlClanTag(tag);
+        console.log('[ClanWarWeightsPage] clanTag from URL:', tag);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const resolvedClanTag = clanTag || urlClanTag;
+
+  console.log('[ClanWarWeightsPage] resolvedClanTag:', resolvedClanTag);
   const [weights, setWeights] = useState<ClanWarWeight[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -75,7 +95,7 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
       setLoading(false);
       return;
     }
-    if (!clanTag || !clanTag.trim()) {
+    if (!resolvedClanTag || !resolvedClanTag.trim()) {
       setError('Clan tag is required. Please select a clan from the sidebar.');
       setLoading(false);
       return;
@@ -85,7 +105,7 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
-      const response = await fetch(`/api/war-weights?clan_tag=${encodeURIComponent(clanTag)}`, {
+      const response = await fetch(`/api/war-weights?clan_tag=${encodeURIComponent(resolvedClanTag)}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const body = (await response.json().catch(() => ({}))) as {
@@ -117,7 +137,7 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ clan_tag: clanTag }),
+        body: JSON.stringify({ clan_tag: resolvedClanTag }),
       });
       const body = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
