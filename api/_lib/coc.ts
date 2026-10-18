@@ -89,7 +89,7 @@ export interface CocWar {
       tag: string;
       name: string;
       mapPosition?: number;
-      townHallLevel?: number;
+      townhallLevel?: number;
     }[];
   };
   opponent: { tag: string; name: string; stars: number; attacks: number };
