@@ -17,10 +17,15 @@ const ACCESS_PAGES = [
   ['clans', 'Clan Management'],
   ['accounts', 'Filler Accounts'],
   ['wars', 'Wars'],
+  ['clan_access', 'Clan access (all pages)'],
   ['clan_home', 'Clan Home'],
   ['war_weights', 'War Weights'],
   ['user_management', 'User Management'],
 ] as const;
+const GLOBAL_ACCESS_PAGES = ACCESS_PAGES.filter(([key]) =>
+  ['roster', 'clans', 'accounts', 'wars', 'user_management'].includes(key)
+);
+const CLAN_ACCESS_PAGES = ACCESS_PAGES.filter(([key]) => key === 'clan_access');
 
 function normalizeTagInput(value: string): string {
   return `#${value.trim().toUpperCase().replace(/^#+/, '')}`;
@@ -137,29 +142,34 @@ export default function DeveloperDashboard() {
     return true;
   };
 
+  const selectedAccessPages = permissionClans.includes('*')
+    ? GLOBAL_ACCESS_PAGES
+    : CLAN_ACCESS_PAGES;
+
   useEffect(() => {
     const referenceClan = permissionClans[0] ?? '*';
     setPermissionAccess(Object.fromEntries(
-      ACCESS_PAGES.map(([pageKey]) => [pageKey, effectivePermission(referenceClan, permissionRole, pageKey)])
+      selectedAccessPages.map(([pageKey]) => [pageKey, effectivePermission(referenceClan, permissionRole, pageKey)])
     ));
-  }, [accessPermissions, permissionClans, permissionRole]);
+  }, [accessPermissions, permissionClans, permissionRole, selectedAccessPages]);
 
   const selectPermissionRole = (role: string) => {
     setPermissionRole(role);
     const scope = permissionClans[0] ?? '*';
     const referenceClan = scope === '*' ? '*' : scope;
     setPermissionAccess(Object.fromEntries(
-      ACCESS_PAGES.map(([pageKey]) => [pageKey, effectivePermission(referenceClan, role, pageKey)])
+      selectedAccessPages.map(([pageKey]) => [pageKey, effectivePermission(referenceClan, role, pageKey)])
     ));
   };
 
   const savePermissionMatrix = async () => {
     const scopes = permissionClans.length > 0 ? permissionClans : ['*'];
+    const pages = scopes.includes('*') ? GLOBAL_ACCESS_PAGES : CLAN_ACCESS_PAGES;
     await saveAccess({
       action: 'save_permissions',
       role: permissionRole,
       clan_tags: scopes,
-      permissions: ACCESS_PAGES.map(([pageKey]) => ({
+      permissions: pages.map(([pageKey]) => ({
         page_key: pageKey,
         allowed: permissionAccess[pageKey] !== false,
       })),
@@ -298,7 +308,7 @@ export default function DeveloperDashboard() {
                 </select>
                 <p className="text-xs text-astral-300/50">Hold Ctrl or Cmd to select multiple clans.</p>
                 <div className="rounded-lg border border-astral-700/30 divide-y divide-astral-700/20">
-                  {ACCESS_PAGES.map(([pageKey, label]) => (
+                  {selectedAccessPages.map(([pageKey, label]) => (
                     <label key={pageKey} className="flex items-center justify-between gap-3 px-3 py-2 text-sm text-astral-200">
                       <span>{label}</span>
                       <input
