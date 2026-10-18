@@ -631,15 +631,28 @@ async function handleSyncWarWeights(req: { method?: string; url: string; headers
 
     const roster = [...(war.clan.members ?? [])]
       .sort((a, b) => (a.mapPosition ?? 999) - (b.mapPosition ?? 999));
+
+    const { data: existingWeights, error: existingError } = await supabase
+      .from('war_weights')
+      .select('player_tag, value');
+    if (existingError) throw new Error(existingError.message);
+
     if (roster.length === 0) {
-      send(res, 200, { ok: true, updated: 0, message: 'No roster members in war.' });
+      send(res, 200, {
+        ok: true,
+        updated: 0,
+        message: 'No roster members in war.',
+      });
       return;
     }
 
+    const previousValues = new Map(
+      (existingWeights ?? []).map((weight) => [weight.player_tag, weight.value ?? 0])
+    );
     const now = new Date().toISOString();
     const upserts = roster.map((member, index) => {
       const th = member.townHallLevel ?? 0;
-      const value = th;
+      const value = previousValues.get(member.tag) ?? 0;
       return {
         clan_tag: clanTag,
         player_name: member.name,
@@ -656,7 +669,7 @@ async function handleSyncWarWeights(req: { method?: string; url: string; headers
     let updated = 0;
     for (let i = 0; i < upserts.length; i += CHUNK) {
       const chunk = upserts.slice(i, i + CHUNK);
-      const { error } = await supabase.from('war_weights').upsert(chunk, { onConflict: 'clan_tag, player_tag' });
+      const { error } = await supabase.from('war_weights').upsert(chunk, { onConflict: 'player_tag' });
       if (error) throw new Error(error.message);
       updated += chunk.length;
     }
