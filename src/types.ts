@@ -24,7 +24,18 @@ export type ColumnKey =
   | 'homeClan'
   | 'status';
 
-export type PageKey = 'roster' | 'accounts' | 'wars' | 'clans';
+export type PageKey = 'roster' | 'accounts' | 'wars' | 'clans' | 'developer';
+
+export type ClanPageKey = 'home' | 'war-weights';
+
+export interface ClanPage {
+  type: 'clan';
+  clanTag: string;
+  clanName: string;
+  page: ClanPageKey;
+}
+
+export type ActivePage = PageKey | ClanPage;
 
 export interface ColumnConfig {
   key: ColumnKey;
@@ -39,4 +50,44 @@ export type SortDirection = 'asc' | 'desc';
 export interface SortState {
   column: ColumnKey;
   direction: SortDirection;
+}
+
+export interface TrackedClan {
+  clan_tag: string;
+  clan_name: string;
+  added_date?: string;
+}
+
+export interface ClanRosterPlayer {
+  player_name: string;
+  player_tag: string;
+  discord_id: string | null;
+  town_hall: number | null;
+  role: string | null;
+  status: string | null;
+  join_date: string | null;
+  days_in_clan: number | null;
+  war_weight: number | null;
+  updated_date: string | null;
+}
+
+export interface ClanWarWeight {
+  player_name: string;
+  player_tag: string;
+  town_hall: number | null;
+  war_weight: number | null;
+  map_position: number | null;
+  updated_date: string | null;
+}
+
+export function isClanPage(page: ActivePage): page is ClanPage {
+  return (page as ClanPage).type === 'clan';
+}
+
+export function clanPageKey(tag: string, name: string, page: ClanPageKey): ClanPage {
+  return { type: 'clan', clanTag: tag, clanName: name, page };
+}
+
+export function clanPageId(page: ClanPage): string {
+  return `clan-${page.page}:${page.clanTag}`;
 }

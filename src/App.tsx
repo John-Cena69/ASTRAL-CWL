@@ -24,8 +24,20 @@ import WarsPage from '@/components/WarsPage';
 import { DEFAULT_COLUMNS } from '@/columns';
 import { fetchClansFromSheet } from '@/sheetsFetcher';
 import { supabase } from '@/supabaseClient';
-import type { Clan, ColumnConfig, ColumnKey, PageKey, SortState } from '@/types';
+import type {
+  Clan,
+  ActivePage,
+  ClanPage,
+  ColumnConfig,
+  ColumnKey,
+  PageKey,
+  SortState,
+} from '@/types';
+import { isClanPage } from '@/types';
 import { buildAllMissingMentions } from '@/discordMentions';
+import ClanHomePage from '@/components/ClanHomePage';
+import ClanWarWeightsPage from '@/components/ClanWarWeightsPage';
+import DeveloperDashboard from '@/components/DeveloperDashboard';
 
 const DEFAULT_SHEET_URL =
   import.meta.env.VITE_SHEET_URL;
@@ -49,7 +61,7 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [showProfile, setShowProfile] = useState(false);
   const [copiedMissing, setCopiedMissing] = useState(false);
-  const [activePage, setActivePage] = useState<PageKey>('roster');
+  const [activePage, setActivePage] = useState<ActivePage>('roster');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -373,7 +385,11 @@ export default function App() {
         </section>
       )}
 
-      {activePage === 'accounts' ? <AccountsPage /> : activePage === 'wars' ? <WarsPage /> : activePage === 'clans' ? <ClansPage /> : <>
+      {isClanPage(activePage)
+        ? activePage.page === 'war-weights'
+          ? <ClanWarWeightsPage clanTag={activePage.clanTag} clanName={activePage.clanName} />
+          : <ClanHomePage clanTag={activePage.clanTag} clanName={activePage.clanName} />
+        : activePage === 'developer' ? <DeveloperDashboard /> : activePage === 'accounts' ? <AccountsPage /> : activePage === 'wars' ? <WarsPage /> : activePage === 'clans' ? <ClansPage /> : <>
 
       {/* Toolbar */}
       <div className="relative z-30 sticky top-0 bg-space-900/80 backdrop-blur-md border-b border-astral-700/20 overflow-visible">
