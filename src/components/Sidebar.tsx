@@ -241,7 +241,7 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
           ))}
 
           {/* Dynamic clan sections */}
-          {!loading && trackedClans.length > 0 && globalPageAccess.cwl !== false && (
+          {!loading && trackedClans.length > 0 && (
             <>
               <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-widest text-astral-300/40">
                 Clans
