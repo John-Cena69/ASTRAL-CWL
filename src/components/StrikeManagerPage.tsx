@@ -95,6 +95,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingClear, setPendingClear] = useState(false);
 
   // Form state for adding a strike to batch
   const [searchQuery, setSearchQuery] = useState('');
@@ -107,7 +108,11 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
   const [showReasonDropdown, setShowReasonDropdown] = useState(false);
 
   const loadRoster = async () => {
-    if (!supabase) return;
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
@@ -126,11 +131,16 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
       }
     } catch {
       // ignore
+    } finally {
+      setLoading(false);
     }
   };
 
   const loadConfig = async () => {
-    if (!supabase) return;
+    if (!supabase) {
+      setConfigLoading(false);
+      return;
+    }
     setConfigLoading(true);
     try {
       const { data: session } = await supabase.auth.getSession();
@@ -158,7 +168,11 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
   };
 
   const loadPending = async () => {
-    if (!supabase) return;
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
@@ -188,6 +202,8 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
       }
     } catch {
       // ignore
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -303,7 +319,16 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     setError(null);
     try {
       const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
+      const token = session?.session?.access_token;
+      const authUser = session?.session?.user;
+      const profileMetadata = authUser?.user_metadata ?? {};
+      const discordIdentity = authUser?.identities?.find((identity: any) => identity.provider === 'discord');
+      const discordData = discordIdentity?.identity_data ?? {};
+      const removeDiscriminator = (value: unknown) =>
+        typeof value === 'string' ? value.replace(/#0$/, '') : '';
+      const confirmedBy = removeDiscriminator(
+        profileMetadata.user_name || discordData.username || profileMetadata.name || 'Unknown'
+      );
       const response = await fetch('/api/strikes?action=confirm_batch', {
         method: 'POST',
         headers: {
@@ -312,6 +337,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
         },
         body: JSON.stringify({
           clan_tag: clanTag,
+          confirmed_by: confirmedBy,
           strikes: pendingStrikes.map((s) => ({
             player_tag: s.player_tag,
             player_name: s.player_name,
@@ -341,9 +367,15 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
 
   const handleClearPending = async () => {
     if (!supabase) return;
-    if (!window.confirm('Clear all pending strikes? This cannot be undone.')) return;
+    setPendingClear(true);
+    setError(null);
+  };
+
+  const executeClearPending = async () => {
+    if (!supabase) return;
     setIssuing(true);
     setError(null);
+    setPendingClear(false);
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
@@ -613,6 +645,44 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
         </div>
       </section>
 
+      {/* === Clear Pending Confirmation Modal === */}
+      {pendingClear && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Confirm clear pending strikes">
+          <div
+            className="absolute inset-0 bg-space-950/70 backdrop-blur-sm"
+            onClick={() => setPendingClear(false)}
+            aria-hidden="true"
+          />
+          <div className="relative bg-space-800 border border-astral-700/30 rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl shadow-space-950">
+            <div className="mx-auto w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center">
+              <Trash2 className="w-6 h-6 text-rose-300" />
+            </div>
+            <h3 className="mt-4 font-display text-lg font-bold text-white">Clear all pending strikes?</h3>
+            <p className="mt-2 text-sm text-astral-200/70">
+              This will delete all {pendingStrikes.length} pending strike(s) from the database. This cannot be undone.
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingClear(false)}
+                className="astral-btn-ghost justify-center"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeClearPending}
+                disabled={issuing}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/15 px-4 py-2.5 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/25"
+              >
+                {issuing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Clear All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* === Pending Batch === */}
       {pendingStrikes.length > 0 && (
         <section className="astral-card overflow-hidden">
@@ -671,7 +741,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
           <div className="px-6 py-4 border-t border-astral-700/30 flex justify-end gap-2">
             <button
               onClick={handleClearPending}
-              disabled={issuing}
+              disabled={issuing || pendingClear}
               className="astral-btn-ghost" title="Clear all">
               {issuing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
               Clear All
