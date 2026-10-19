@@ -73,3 +73,17 @@ export function readJsonBody(req: { body?: unknown }): Record<string, unknown> {
   }
   return body as Record<string, unknown>;
 }
+
+/* ───────────────────── second Supabase project (linked_players) ───────────────────── */
+
+const PLAYERBASE_URL = process.env.PLAYERBASE_SUPABASE_URL || '';
+const PLAYERBASE_SERVICE_KEY = process.env.PLAYERBASE_SUPABASE_SERVICE_ROLE_KEY || '';
+
+export function playerbaseAdminClient(): SupabaseClient {
+  if (!PLAYERBASE_URL || !PLAYERBASE_SERVICE_KEY) {
+    throw new Error(
+      'PLAYERBASE_SUPABASE_URL and PLAYERBASE_SUPABASE_SERVICE_ROLE_KEY must be set (server env, never VITE_).'
+    );
+  }
+  return createClient(PLAYERBASE_URL, PLAYERBASE_SERVICE_KEY);
+}
