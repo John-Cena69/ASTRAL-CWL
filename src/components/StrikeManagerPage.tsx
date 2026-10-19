@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   Check,
-  Clock,
   LoaderCircle,
   Plus,
   RefreshCw,
@@ -18,12 +17,20 @@ import type { ClanRosterPlayer } from '@/types';
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString(undefined, {
-    month: 'short',
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-GB', {
     day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
+    month: 'short',
+    year: 'numeric',
   });
+}
+
+function formatDateInput(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toISOString().split('T')[0];
 }
 
 function valueColor(value: number): string {
@@ -35,16 +42,8 @@ function valueColor(value: number): string {
 
 interface StrikeReason {
   id: string;
-  value_id: string | null;
-  reason_text: string;
-  is_active: boolean;
-  created_at: string | null;
-}
-
-interface StrikeValue {
-  id: string;
   value: number;
-  label: string;
+  reason_text: string;
   is_active: boolean;
   created_at: string | null;
 }
@@ -69,6 +68,7 @@ interface ClanCustom {
 }
 
 interface PendingStrike {
+  id: string | null;
   player_tag: string;
   player_name: string;
   discord_id: string | null;
@@ -85,7 +85,6 @@ interface StrikeManagerPageProps {
 
 export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPageProps) {
   const [roster, setRoster] = useState<ClanRosterPlayer[]>([]);
-  const [globalValues, setGlobalValues] = useState<StrikeValue[]>([]);
   const [globalReasons, setGlobalReasons] = useState<StrikeReason[]>([]);
   const [overrides, setOverrides] = useState<ClanOverride[]>([]);
   const [customReasons, setCustomReasons] = useState<ClanCustom[]>([]);
@@ -98,9 +97,10 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
   const [notice, setNotice] = useState<string | null>(null);
 
   // Form state for adding a strike to batch
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedPlayer, setSelectedPlayer] = useState<ClanRosterPlayer | null>(null);
-  const [strikeValue, setStrikeValue] = useState('');
   const [strikeReason, setStrikeReason] = useState('');
+  const [strikeValue, setStrikeValue] = useState('');
   const [strikeNote, setStrikeNote] = useState('');
   const [strikeDate, setStrikeDate] = useState('');
   const [isWarning, setIsWarning] = useState(false);
@@ -138,9 +138,8 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
       if (token) headers.Authorization = `Bearer ${token}`;
 
       const vResp = await fetch(`/api/strike-config?type=global`, { headers });
-      const vBody = (await vResp.json()) as { ok?: boolean; values?: StrikeValue[]; reasons?: StrikeReason[] };
+      const vBody = (await vResp.json()) as { ok?: boolean; reasons?: StrikeReason[] };
       if (vBody.ok) {
-        setGlobalValues(vBody.values ?? []);
         setGlobalReasons(vBody.reasons ?? []);
       }
 
@@ -175,6 +174,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
       if (body.ok && body.strikes) {
         setPendingStrikes(
           body.strikes.map((s) => ({
+            id: s.id,
             player_tag: s.player_tag,
             player_name: s.player_name,
             discord_id: s.discord_id,
@@ -202,12 +202,10 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
 
     // Add global reasons with overrides applied
     for (const reason of globalReasons) {
-      const valueObj = globalValues.find((v) => v.id === reason.value_id);
-      const value = valueObj?.value ?? 0;
       const override = overrides.find((o) => o.global_reason_id === reason.id);
       const enabled = override ? override.is_enabled : true;
       const text = override?.custom_reason_text ?? reason.reason_text;
-      const val = override?.custom_value ?? value;
+      const val = override?.custom_value ?? reason.value;
       reasonMap.set(reason.id, { value: val, text, enabled, source: 'global' });
     }
 
@@ -219,7 +217,32 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     }
 
     return Array.from(reasonMap.values()).filter((r) => r.enabled);
-  }, [globalReasons, globalValues, overrides, customReasons]);
+  }, [globalReasons, overrides, customReasons]);
+
+  // Filtered roster based on search query
+  const filteredRoster = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return roster;
+    return roster.filter(
+      (p) =>
+        p.player_name.toLowerCase().includes(q) ||
+        p.player_tag.toLowerCase().includes(q) ||
+        (p.discord_id && p.discord_id.toLowerCase().includes(q))
+    );
+  }, [roster, searchQuery]);
+
+  const handleSelectPlayer = (player: ClanRosterPlayer) => {
+    setSelectedPlayer(player);
+    setSearchQuery('');
+  };
+
+  const handleReasonSelect = (reasonText: string) => {
+    const reason = availableReasons.find((r) => r.text === reasonText);
+    if (reason) {
+      setStrikeValue(reason.value.toString());
+    }
+    setStrikeReason(reasonText);
+  };
 
   const handleAddToBatch = () => {
     if (!selectedPlayer) {
@@ -245,6 +268,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     setPendingStrikes((prev) => [
       ...prev,
       {
+        id: null,
         player_tag: selectedPlayer.player_tag,
         player_name: selectedPlayer.player_name,
         discord_id: selectedPlayer.discord_id ?? null,
@@ -279,7 +303,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
-      const response = await fetch('/api/strikes?action=pending', {
+      const response = await fetch('/api/strikes?action=confirm_batch', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -288,8 +312,13 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
         body: JSON.stringify({
           clan_tag: clanTag,
           strikes: pendingStrikes.map((s) => ({
-            ...s,
-            issued_by: '',
+            player_tag: s.player_tag,
+            player_name: s.player_name,
+            discord_id: s.discord_id,
+            value: s.value,
+            reason: s.reason,
+            note: s.note,
+            issued_date: s.issued_date,
           })),
         }),
       });
@@ -297,13 +326,13 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
         ok?: boolean;
         error?: string;
       };
-      if (!response.ok) throw new Error(body.error || `Failed to add strikes (HTTP ${response.status}).`);
-      if (!body.ok) throw new Error(body.error || 'Failed to add strikes.');
-      setNotice(`Added ${pendingStrikes.length} strike(s) to pending.`);
+      if (!response.ok) throw new Error(body.error || `Failed to confirm strikes (HTTP ${response.status}).`);
+      if (!body.ok) throw new Error(body.error || 'Failed to confirm strikes.');
+      setNotice(`Confirmed ${pendingStrikes.length} strike(s).`);
       setPendingStrikes([]);
       await loadPending();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add strikes.');
+      setError(err instanceof Error ? err.message : 'Failed to confirm strikes.');
     } finally {
       setConfirming(false);
     }
@@ -315,13 +344,11 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     setError(null);
     try {
       const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      const endpoint = action.startsWith('clan_') ? '/api/strike-config/clan' : '/api/strike-config/global';
-      const response = await fetch(endpoint, {
+      const response = await fetch('/api/strike-config?type=global', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(session.session?.access_token ? { Authorization: `Bearer ${session.session.access_token}` } : {}),
         },
         body: JSON.stringify({ action, clan_tag: clanTag, ...payload }),
       });
@@ -411,26 +438,86 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
           </p>
         </div>
         <div className="p-6 space-y-4">
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-xs text-astral-300/60 uppercase tracking-wide">Player</label>
-              <select
-                value={selectedPlayer?.player_tag ?? ''}
-                onChange={(e) => {
-                  const tag = e.target.value;
-                  const p = roster.find((pl) => pl.player_tag === tag);
-                  setSelectedPlayer(p ?? null);
-                }}
+          <div className="flex flex-col gap-2">
+            <label className="text-xs text-astral-300/60 uppercase tracking-wide">Player</label>
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search player by name, tag, or Discord..."
                 className="astral-input w-full text-sm"
-              >
-                <option value="">Select player...</option>
-                {roster.map((p) => (
-                  <option key={p.player_tag} value={p.player_tag}>
-                    {p.player_name} ({p.player_tag})
-                  </option>
-                ))}
-              </select>
+              />
+              {searchQuery.trim() && (
+                <div className="absolute z-20 mt-1 w-full bg-space-800 border border-astral-700/30 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                  {filteredRoster.map((p) => (
+                    <div
+                      key={p.player_tag}
+                      onClick={() => handleSelectPlayer(p)}
+                      className="px-4 py-2 text-sm cursor-pointer hover:bg-astral-700/30 flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="text-astral-100 font-medium">{p.player_name}</div>
+                        <div className="text-xs text-astral-300/50">
+                          {p.player_tag} {p.discord_id ? `| @${p.discord_id}` : ''}
+                        </div>
+                      </div>
+                      <Check className="w-4 h-4 text-gold-400" />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+            {selectedPlayer && (
+              <div className="flex items-center gap-2 pt-1">
+                <span className="text-xs text-emerald-300">✓ Selected: {selectedPlayer.player_name}</span>
+                <button
+                  onClick={() => setSelectedPlayer(null)}
+                  className="p-1 text-rose-300/70 hover:text-rose-200"
+                  title="Clear selection"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs text-astral-300/60 uppercase tracking-wide">Reason</label>
+            <div className="relative">
+              <input
+                type="text"
+                value={strikeReason}
+                onChange={(e) => {
+                  setStrikeReason(e.target.value);
+                  // Auto-suggest matching reason
+                  const typed = e.target.value.toLowerCase();
+                  const match = availableReasons.find((r) => r.text.toLowerCase().includes(typed));
+                  if (match && typed && match.text.toLowerCase().startsWith(typed)) {
+                    setStrikeValue(match.value.toString());
+                  }
+                }}
+                placeholder="Type or select a strike reason..."
+                className="astral-input w-full text-sm"
+              />
+              {availableReasons.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full bg-space-800 border border-astral-700/30 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                  {availableReasons.map((r) => (
+                    <div
+                      key={`${r.source}-${r.text}`}
+                      onClick={() => handleReasonSelect(r.text)}
+                      className="px-4 py-2 text-sm cursor-pointer hover:bg-astral-700/30"
+                    >
+                      <div className="text-astral-200">{r.text}</div>
+                      <div className={`text-xs font-mono ${valueColor(r.value)}`}>{r.value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
             <div className="flex flex-col gap-2">
               <label className="text-xs text-astral-300/60 uppercase tracking-wide">Value</label>
               <input
@@ -443,22 +530,6 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
               />
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-xs text-astral-300/60 uppercase tracking-wide">Reason</label>
-              <select
-                value={strikeReason}
-                onChange={(e) => setStrikeReason(e.target.value)}
-                className="astral-input w-full text-sm"
-              >
-                <option value="">Select reason...</option>
-                {availableReasons.map((r) => (
-                  <option key={`${r.source}-${r.text}`} value={r.text}>
-                    {r.text} ({r.value})
-                  </option>
-                ))}
-                <option value="__custom__">Custom reason...</option>
-              </select>
-            </div>
-            <div className="flex flex-col gap-2">
               <label className="text-xs text-astral-300/60 uppercase tracking-wide">Date</label>
               <input
                 type="date"
@@ -468,41 +539,30 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
               />
             </div>
           </div>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-xs text-astral-300/60 uppercase tracking-wide">Note</label>
-              <input
-                type="text"
-                value={strikeNote}
-                onChange={(e) => setStrikeNote(e.target.value)}
-                placeholder="Optional note"
-                className="astral-input w-full text-sm"
-              />
-            </div>
-            <div className="flex items-end gap-2">
-              <label className="flex items-center gap-2 text-xs text-astral-300/60 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={isWarning}
-                  onChange={() => setIsWarning(!isWarning)}
-                  className="h-4 w-4 accent-gold-400"
-                />
-                Warning (value = 0)
-              </label>
-            </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs text-astral-300/60 uppercase tracking-wide">Note</label>
+            <input
+              type="text"
+              value={strikeNote}
+              onChange={(e) => setStrikeNote(e.target.value)}
+              placeholder="Optional note"
+              className="astral-input w-full text-sm"
+            />
           </div>
-          {strikeReason === '__custom__' && (
-            <div className="flex flex-col gap-2">
-              <label className="text-xs text-astral-300/60 uppercase tracking-wide">Custom Reason Text</label>
+
+          <div className="flex items-end gap-2">
+            <label className="flex items-center gap-2 text-xs text-astral-300/60 cursor-pointer">
               <input
-                type="text"
-                value={strikeReason}
-                onChange={(e) => setStrikeReason(e.target.value)}
-                placeholder="Enter custom reason"
-                className="astral-input w-full text-sm"
+                type="checkbox"
+                checked={isWarning}
+                onChange={() => setIsWarning(!isWarning)}
+                className="h-4 w-4 accent-gold-400"
               />
-            </div>
-          )}
+              Warning (value = 0)
+            </label>
+          </div>
+
           <button
             onClick={handleAddToBatch}
             disabled={issuing || !selectedPlayer || !strikeValue.trim() || !strikeReason.trim() || !strikeDate.trim()}
@@ -542,11 +602,11 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                     className="border-t border-astral-700/15 hover:bg-astral-700/10"
                   >
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-astral-200">{s.player_tag}</span>
-                        {s.discord_id && <span className="text-astral-300/50 text-xs">@{s.discord_id}</span>}
-                      </div>
-                      <p className="text-xs text-astral-300/40">{s.player_name}</p>
+                      <div className="text-astral-100 font-medium">{s.player_name}</div>
+                      <div className="text-xs text-astral-300/50 font-mono">{s.player_tag}</div>
+                      {s.discord_id && (
+                        <div className="text-xs text-astral-300/40">{s.discord_id}</div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-astral-100 font-medium">
                       <span className={`font-mono ${valueColor(s.value)}`}>{s.value}</span>
@@ -609,8 +669,6 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
             ) : (
               <div className="space-y-3">
                 {globalReasons.map((reason) => {
-                  const valueObj = globalValues.find((v) => v.id === reason.value_id);
-                  const defaultValue = valueObj?.value ?? 0;
                   const override = overrides.find((o) => o.global_reason_id === reason.id);
                   const isEnabled = override ? override.is_enabled : true;
                   const customText = override?.custom_reason_text ?? '';
@@ -619,7 +677,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                     <div key={reason.id} className="p-3 bg-space-900/40 rounded-xl border border-astral-700/30">
                       <div className="flex items-center justify-between gap-3 mb-2">
                         <span className="text-astral-200 font-medium">{reason.reason_text}</span>
-                        <span className={`text-xs font-mono ${valueColor(defaultValue)}`}>{defaultValue}</span>
+                        <span className={`text-xs font-mono ${valueColor(reason.value)}`}>{reason.value}</span>
                       </div>
                       <div className="grid sm:grid-cols-3 gap-3">
                         <label className="flex items-center gap-2 text-xs text-astral-300/60 cursor-pointer">
@@ -643,7 +701,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                             type="text"
                             value={customText}
                             onChange={(e) => {
-                              // Store in local state then save on blur
+                              // stored locally, saved on checkbox toggle
                             }}
                             placeholder="Custom reason text"
                             className="astral-input w-full text-xs"
@@ -654,9 +712,9 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                           <input
                             type="number"
                             step="0.5"
-                            value={String(customVal)}
+                            value={customVal}
                             onChange={(e) => {
-                              // Store in local state then save on blur
+                              // stored locally, saved on checkbox toggle
                             }}
                             placeholder="0.5"
                             className="astral-input w-full text-xs"

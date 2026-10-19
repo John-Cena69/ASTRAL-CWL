@@ -53,12 +53,9 @@ export default function DeveloperDashboard() {
   const [permissionAccess, setPermissionAccess] = useState<Record<string, boolean>>({});
 
   // Global strike config state
-  const [strikeValues, setStrikeValues] = useState<{ id: string; value: number; label: string; is_active: boolean }[]>([]);
-  const [strikeReasons, setStrikeReasons] = useState<{ id: string; value_id: string | null; reason_text: string; is_active: boolean }[]>([]);
-  const [newValue, setNewValue] = useState('');
-  const [newValueLabel, setNewValueLabel] = useState('');
-  const [newReason, setNewReason] = useState('');
+  const [strikeReasons, setStrikeReasons] = useState<{ id: string; value: number; reason_text: string; is_active: boolean }[]>([]);
   const [newReasonValue, setNewReasonValue] = useState('');
+  const [newReasonText, setNewReasonText] = useState('');
   const [savingConfig, setSavingConfig] = useState(false);
 
   const loadClans = async () => {
@@ -122,12 +119,10 @@ export default function DeveloperDashboard() {
       });
       const configBody = (await configResp.json().catch(() => ({}))) as {
         ok?: boolean;
-        values?: { id: string; value: number; label: string; is_active: boolean }[];
-        reasons?: { id: string; value_id: string | null; reason_text: string; is_active: boolean }[];
+        reasons?: { id: string; value: number; reason_text: string; is_active: boolean }[];
         error?: string;
       };
       if (configBody.ok) {
-        setStrikeValues(configBody.values ?? []);
         setStrikeReasons(configBody.reasons ?? []);
       }
     } catch (err) {
@@ -156,72 +151,10 @@ export default function DeveloperDashboard() {
     setMessage('Access settings saved.');
   };
 
-  const saveStrikeValue = async (id: string | null, value: string, label: string, isActive: boolean) => {
+  const saveStrikeReason = async (id: string | null, value: string, reasonText: string, isActive: boolean) => {
     if (!supabase) return;
     const val = parseFloat(value);
-    if (isNaN(val) || !label.trim()) {
-      setError('Value and label are required.');
-      return;
-    }
-    setSavingConfig(true);
-    setError(null);
-    try {
-      const { data: session } = await supabase.auth.getSession();
-      const response = await fetch('/api/strike-config?type=global', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(session.session?.access_token ? { Authorization: `Bearer ${session.session.access_token}` } : {}),
-        },
-        body: JSON.stringify({
-          action: 'save_value',
-          id: id ?? '',
-          value: val,
-          label: label.trim(),
-          is_active: isActive,
-        }),
-      });
-      const body = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-      if (!response.ok || !body.ok) throw new Error(body.error || 'Failed to save strike value.');
-      setNewValue('');
-      setNewValueLabel('');
-      await loadAccess();
-      setMessage('Strike value saved.');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed.');
-    } finally {
-      setSavingConfig(false);
-    }
-  };
-
-  const deleteStrikeValue = async (id: string) => {
-    if (!supabase) return;
-    setSavingConfig(true);
-    setError(null);
-    try {
-      const { data: session } = await supabase.auth.getSession();
-      const response = await fetch('/api/strike-config?type=global', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(session.session?.access_token ? { Authorization: `Bearer ${session.session.access_token}` } : {}),
-        },
-        body: JSON.stringify({ action: 'delete_value', id }),
-      });
-      const body = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-      if (!response.ok || !body.ok) throw new Error(body.error || 'Failed to delete strike value.');
-      await loadAccess();
-      setMessage('Strike value deleted.');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Delete failed.');
-    } finally {
-      setSavingConfig(false);
-    }
-  };
-
-  const saveStrikeReason = async (id: string | null, valueId: string, reasonText: string, isActive: boolean) => {
-    if (!supabase) return;
-    if (!valueId || !reasonText.trim()) {
+    if (isNaN(val) || !reasonText.trim()) {
       setError('Value and reason text are required.');
       return;
     }
@@ -238,15 +171,15 @@ export default function DeveloperDashboard() {
         body: JSON.stringify({
           action: 'save_reason',
           id: id ?? '',
-          value_id: valueId,
+          value: val,
           reason_text: reasonText.trim(),
           is_active: isActive,
         }),
       });
       const body = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!response.ok || !body.ok) throw new Error(body.error || 'Failed to save strike reason.');
-      setNewReason('');
       setNewReasonValue('');
+      setNewReasonText('');
       await loadAccess();
       setMessage('Strike reason saved.');
     } catch (err) {
@@ -530,120 +463,58 @@ export default function DeveloperDashboard() {
             <div>
               <h3 className="font-semibold text-astral-100">Global Strike Config</h3>
               <p className="mt-1 text-sm text-astral-300/60">
-                Define global strike values and reasons available to all clans.
+                Define global strike value + reason pairs available to all clans.
               </p>
             </div>
-            <div className="grid lg:grid-cols-2 gap-5">
-              <div className="space-y-4">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-astral-300/60">Strike Values</h4>
-                <div className="space-y-2">
-                  {strikeValues.length === 0 ? (
-                    <p className="text-xs text-astral-300/50">No values configured.</p>
-                  ) : (
-                    strikeValues.map((v) => (
-                      <div key={v.id} className="flex items-center justify-between p-2 bg-space-900/40 rounded-lg border border-astral-700/30">
-                        <span className="text-astral-200 font-medium">{v.label}</span>
-                        <span className={`text-xs font-mono ${valueColor(v.value)} ml-2`}>{v.value}</span>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => void deleteStrikeValue(v.id)}
-                            className="p-1 text-rose-300/70 hover:text-rose-200"
-                            title="Delete value"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+            <div className="space-y-4">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-astral-300/60">Strike Reasons (Value + Reason)</h4>
+              <div className="space-y-2">
+                {strikeReasons.length === 0 ? (
+                  <p className="text-xs text-astral-300/50">No reasons configured.</p>
+                ) : (
+                  strikeReasons.map((r) => (
+                    <div key={r.id} className="flex items-center justify-between p-2 bg-space-900/40 rounded-lg border border-astral-700/30">
+                      <span className="text-astral-200 font-medium">{r.reason_text}</span>
+                      <span className={`text-xs font-mono ${valueColor(r.value)} ml-2`}>{r.value}</span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => void deleteStrikeReason(r.id)}
+                          className="p-1 text-rose-300/70 hover:text-rose-200"
+                          title="Delete reason"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                    ))
-                  )}
-                </div>
-                <div className="pt-4 border-t border-astral-700/30">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-astral-300/60 mb-2">Add Value</h4>
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={newValue}
-                      onChange={(e) => setNewValue(e.target.value)}
-                      placeholder="Value (e.g. 1.0)"
-                      className="astral-input w-24 text-sm"
-                    />
-                    <input
-                      type="text"
-                      value={newValueLabel}
-                      onChange={(e) => setNewValueLabel(e.target.value)}
-                      placeholder="Label (e.g. Standard)"
-                      className="astral-input flex-1 text-sm"
-                    />
-                    <button
-                      onClick={() => void saveStrikeValue(null, newValue, newValueLabel, true)}
-                      disabled={savingConfig}
-                      className="astral-btn-primary text-xs px-3"
-                    >
-                      {savingConfig ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-                    </button>
-                  </div>
-                </div>
+                    </div>
+                  ))
+                )}
               </div>
-              <div className="space-y-4">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-astral-300/60">Strike Reasons</h4>
+              <div className="pt-4 border-t border-astral-700/30">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-astral-300/60 mb-2">Add Reason</h4>
                 <div className="space-y-2">
-                  {strikeReasons.length === 0 ? (
-                    <p className="text-xs text-astral-300/50">No reasons configured.</p>
-                  ) : (
-                    strikeReasons.map((r) => {
-                      const valueObj = strikeValues.find((v) => v.id === r.value_id);
-                      const value = valueObj?.value ?? 0;
-                      return (
-                        <div key={r.id} className="flex items-center justify-between p-2 bg-space-900/40 rounded-lg border border-astral-700/30">
-                          <span className="text-astral-200 font-medium">{r.reason_text}</span>
-                          <span className={`text-xs font-mono ${valueColor(value)} ml-2`}>{value}</span>
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => void deleteStrikeReason(r.id)}
-                              className="p-1 text-rose-300/70 hover:text-rose-200"
-                              title="Delete reason"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-                <div className="pt-4 border-t border-astral-700/30">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-astral-300/60 mb-2">Add Reason</h4>
-                  <div className="space-y-2">
-                    <select
-                      value={newReasonValue}
-                      onChange={(e) => setNewReasonValue(e.target.value)}
-                      className="astral-input w-full text-sm"
-                    >
-                      <option value="">Select value...</option>
-                      {strikeValues.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.label} ({v.value})
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="text"
-                      value={newReason}
-                      onChange={(e) => setNewReason(e.target.value)}
-                      placeholder="Reason text (e.g. Missed War hits)"
-                      className="astral-input w-full text-sm"
-                    />
-                    <button
-                      onClick={() => void saveStrikeReason(null, newReasonValue, newReason, true)}
-                      disabled={savingConfig || !newReasonValue || !newReason.trim()}
-                      className="astral-btn-primary text-xs px-3"
-                    >
-                      {savingConfig ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-                    </button>
-                  </div>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={newReasonValue}
+                    onChange={(e) => setNewReasonValue(e.target.value)}
+                    placeholder="Value (e.g. 1.0)"
+                    className="astral-input w-full text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={newReasonText}
+                    onChange={(e) => setNewReasonText(e.target.value)}
+                    placeholder="Reason text (e.g. Missed War hits)"
+                    className="astral-input w-full text-sm"
+                  />
+                  <button
+                    onClick={() => void saveStrikeReason(null, newReasonValue, newReasonText, true)}
+                    disabled={savingConfig || !newReasonValue || !newReasonText.trim()}
+                    className="astral-btn-primary text-xs px-3"
+                  >
+                    {savingConfig ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                  </button>
                 </div>
               </div>
             </div>

@@ -15,11 +15,12 @@ import type { ClanWarWeight } from '@/types';
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString(undefined, {
-    month: 'short',
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-GB', {
     day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
+    month: 'short',
+    year: 'numeric',
   });
 }
 

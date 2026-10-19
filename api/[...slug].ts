@@ -1408,8 +1408,8 @@ async function handleCwlClans(req: { method?: string; url: string; headers: Reco
 
 /* ───────────────────── Strike system handlers ───────────────────── */
 
-// GET /api/strike-config/global — list global strike values and reasons
-// POST /api/strike-config/global — save global values/reasons (Developer)
+// GET /api/strike-config?type=global — list global strike reasons (each with value)
+// POST /api/strike-config?type=global — save global strike reason+value (Developer)
 async function handleStrikeConfigGlobal(
   req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown },
   res: { status: (code: number) => { json: (body: unknown) => void } },
@@ -1421,15 +1421,15 @@ async function handleStrikeConfigGlobal(
   }
   const supabase = adminClient();
   if (req.method === 'GET') {
-    const [{ data: values, error: vError }, { data: reasons, error: rError }] = await Promise.all([
-      supabase.from('strike_values_global').select('*').order('value', { ascending: true }),
-      supabase.from('strike_reasons_global').select('*').order('reason_text', { ascending: true }),
-    ]);
-    if (vError || rError) {
-      send(res, 500, { ok: false, error: (vError || rError)?.message || 'Failed to load strike config.' });
+    const { data: reasons, error: rError } = await supabase
+      .from('strike_reasons_global')
+      .select('*')
+      .order('reason_text', { ascending: true });
+    if (rError) {
+      send(res, 500, { ok: false, error: rError.message || 'Failed to load strike config.' });
       return;
     }
-    send(res, 200, { ok: true, values: values ?? [], reasons: reasons ?? [] });
+    send(res, 200, { ok: true, reasons: reasons ?? [] });
     return;
   }
   if (req.method !== 'POST') {
@@ -1438,40 +1438,12 @@ async function handleStrikeConfigGlobal(
   }
   const body = readJsonBody(req);
   const action = String(body.action ?? '');
-  if (action === 'save_value') {
-    const id = String(body.id ?? '');
-    const value = body.value;
-    const label = String(body.label ?? '').trim();
-    const is_active = body.is_active ?? true;
-    if (!label || value === null || value === undefined) {
-      send(res, 400, { ok: false, error: 'Value and label are required.' });
-      return;
-    }
-    try {
-      if (id) {
-        const { error } = await supabase
-          .from('strike_values_global')
-          .update({ value, label, is_active, updated_at: new Date().toISOString() })
-          .eq('id', id);
-        if (error) throw new Error(error.message);
-      } else {
-        const { error } = await supabase
-          .from('strike_values_global')
-          .insert({ value, label, is_active });
-        if (error) throw new Error(error.message);
-      }
-      send(res, 200, { ok: true });
-    } catch (error) {
-      send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Save failed.' });
-    }
-    return;
-  }
   if (action === 'save_reason') {
     const id = String(body.id ?? '');
-    const value_id = String(body.value_id ?? '');
+    const value = body.value;
     const reason_text = String(body.reason_text ?? '').trim();
     const is_active = body.is_active ?? true;
-    if (!value_id || !reason_text) {
+    if (!reason_text || value === null || value === undefined) {
       send(res, 400, { ok: false, error: 'Value and reason text are required.' });
       return;
     }
@@ -1479,33 +1451,18 @@ async function handleStrikeConfigGlobal(
       if (id) {
         const { error } = await supabase
           .from('strike_reasons_global')
-          .update({ value_id, reason_text, is_active, updated_at: new Date().toISOString() })
+          .update({ value, reason_text, is_active, updated_at: new Date().toISOString() })
           .eq('id', id);
         if (error) throw new Error(error.message);
       } else {
         const { error } = await supabase
           .from('strike_reasons_global')
-          .insert({ value_id, reason_text, is_active });
+          .insert({ value, reason_text, is_active });
         if (error) throw new Error(error.message);
       }
       send(res, 200, { ok: true });
     } catch (error) {
       send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Save failed.' });
-    }
-    return;
-  }
-  if (action === 'delete_value') {
-    const id = String(body.id ?? '');
-    if (!id) {
-      send(res, 400, { ok: false, error: 'ID is required.' });
-      return;
-    }
-    try {
-      const { error } = await supabase.from('strike_values_global').delete().eq('id', id);
-      if (error) throw new Error(error.message);
-      send(res, 200, { ok: true });
-    } catch (error) {
-      send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Delete failed.' });
     }
     return;
   }
@@ -1909,6 +1866,51 @@ async function handleStrikesReduce(
   }
 }
 
+// POST /api/strikes?action=confirm_batch — insert strikes directly into confirmed table
+async function handleStrikesConfirmBatch(
+  req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown },
+  res: { status: (code: number) => { json: (body: unknown) => void } },
+  auth: AuthResult
+): Promise<void> {
+  if (auth.ok === false) {
+    send(res, 401, { ok: false, error: auth.message });
+    return;
+  }
+  const body = readJsonBody(req);
+  const clanTagRaw = String(body.clan_tag ?? '').trim();
+  const strikes = Array.isArray(body.strikes) ? body.strikes : [];
+  if (!clanTagRaw || strikes.length === 0) {
+    send(res, 400, { ok: false, error: 'Clan tag and at least one strike are required.' });
+    return;
+  }
+  try {
+    const supabase = adminClient();
+    const clanTag = await resolveClanTag(supabase, clanTagRaw);
+    const now = new Date().toISOString();
+    const rows = strikes.map((s: Record<string, unknown>) => ({
+      clan_tag: clanTag,
+      player_tag: String(s.player_tag ?? ''),
+      player_name: String(s.player_name ?? ''),
+      discord_id: String(s.discord_id ?? '') || null,
+      value: Number(s.value ?? 0),
+      reason: String(s.reason ?? ''),
+      note: String(s.note ?? '') || null,
+      issued_date: String(s.issued_date ?? now),
+      confirmed_date: now,
+      confirmed_by: String(s.confirmed_by ?? ''),
+      is_active: true,
+      season: null,
+      created_at: now,
+      updated_at: now,
+    }));
+    const { error } = await supabase.from('strikes_confirmed').insert(rows);
+    if (error) throw new Error(error.message);
+    send(res, 200, { ok: true, confirmed: rows.length });
+  } catch (error) {
+    send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Confirm batch failed.' });
+  }
+}
+
 // POST /api/strikes/reset — archive all confirmed strikes for a season
 async function handleStrikesReset(
   req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown },
@@ -2102,6 +2104,9 @@ export default async function handler(req: unknown, res: {
           break;
         case 'reset':
           await handleStrikesReset(r, res, auth);
+          break;
+        case 'confirm_batch':
+          await handleStrikesConfirmBatch(r, res, auth);
           break;
         default:
           send(res, 404, { ok: false, error: `Unknown strikes action: ${getQuery(r).action}` });
