@@ -250,7 +250,6 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
 
   const handleSelectPlayer = (player: ClanRosterPlayer) => {
     setSelectedPlayer(player);
-    setSearchQuery('');
   };
 
   const handleReasonSelect = (reasonText: string) => {
@@ -519,32 +518,27 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                     <div
                       key={p.player_tag}
                       onClick={() => handleSelectPlayer(p)}
-                      className="px-4 py-2 text-sm cursor-pointer hover:bg-astral-700/30 flex items-center justify-between"
+                      className={`px-4 py-2 text-sm cursor-pointer hover:bg-astral-700/30 flex items-center justify-between ${selectedPlayer?.player_tag === p.player_tag ? 'bg-gold-500/15 border-l-4 border-gold-400' : ''}`}
                     >
-                      <div>
-                        <div className="text-astral-100 font-medium">{p.player_name}</div>
-                        <div className="text-xs text-astral-300/50">
-                          {p.player_tag} {p.discord_id ? `| @${p.discord_id}` : ''}
+                      <div className="flex items-center gap-2 w-full">
+                        {selectedPlayer?.player_tag === p.player_tag && (
+                          <Check className="w-3.5 h-3.5 text-gold-400 flex-shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-astral-100 font-medium truncate">{p.player_name}</div>
+                          <div className="text-xs text-astral-300/50 truncate">
+                            {p.player_tag} {p.discord_id ? `| ${p.discord_id}` : ''}
+                          </div>
                         </div>
                       </div>
-                      <Check className="w-4 h-4 text-gold-400" />
+                      {selectedPlayer?.player_tag === p.player_tag && (
+                        <Check className="w-4 h-4 text-gold-400" />
+                      )}
                     </div>
                   ))}
                 </div>
               )}
             </div>
-            {selectedPlayer && (
-              <div className="flex items-center gap-2 pt-1">
-                <span className="text-xs text-emerald-300">✓ Selected: {selectedPlayer.player_name}</span>
-                <button
-                  onClick={() => setSelectedPlayer(null)}
-                  className="p-1 text-rose-300/70 hover:text-rose-200"
-                  title="Clear selection"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            )}
           </div>
 
           <div className="flex flex-col gap-2">
