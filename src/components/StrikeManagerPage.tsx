@@ -103,7 +103,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
   const [strikeReason, setStrikeReason] = useState('');
   const [strikeValue, setStrikeValue] = useState('');
   const [strikeNote, setStrikeNote] = useState('');
-  const [strikeDate, setStrikeDate] = useState('');
+  const [strikeDate, setStrikeDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [isWarning, setIsWarning] = useState(false);
   const [showReasonDropdown, setShowReasonDropdown] = useState(false);
 
@@ -300,7 +300,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     setStrikeValue('');
     setStrikeReason('');
     setStrikeNote('');
-    setStrikeDate('');
+    setStrikeDate(new Date().toISOString().split('T')[0]);
     setIsWarning(false);
     setError(null);
   };
