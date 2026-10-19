@@ -137,14 +137,14 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
       const headers: Record<string, string> = {};
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      const vResp = await fetch(`/api/strike-config/global`, { headers });
+      const vResp = await fetch(`/api/strike-config?type=global`, { headers });
       const vBody = (await vResp.json()) as { ok?: boolean; values?: StrikeValue[]; reasons?: StrikeReason[] };
       if (vBody.ok) {
         setGlobalValues(vBody.values ?? []);
         setGlobalReasons(vBody.reasons ?? []);
       }
 
-      const cResp = await fetch(`/api/strike-config/clan?clan_tag=${encodeURIComponent(clanTag)}`, { headers });
+      const cResp = await fetch(`/api/strike-config?type=clan&clan_tag=${encodeURIComponent(clanTag)}`, { headers });
       const cBody = (await cResp.json()) as { ok?: boolean; overrides?: ClanOverride[]; custom?: ClanCustom[] };
       if (cBody.ok) {
         setOverrides(cBody.overrides ?? []);
@@ -164,7 +164,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
       const token = session.session?.access_token;
       const headers: Record<string, string> = {};
       if (token) headers.Authorization = `Bearer ${token}`;
-      const response = await fetch(`/api/strikes/pending?clan_tag=${encodeURIComponent(clanTag)}`, {
+      const response = await fetch(`/api/strikes?action=pending&clan_tag=${encodeURIComponent(clanTag)}`, {
         headers,
       });
       const body = (await response.json().catch(() => ({}))) as {
@@ -279,7 +279,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
-      const response = await fetch('/api/strikes/pending', {
+      const response = await fetch('/api/strikes?action=pending', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

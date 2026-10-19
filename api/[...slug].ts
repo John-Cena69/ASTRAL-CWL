@@ -2068,7 +2068,6 @@ export default async function handler(req: unknown, res: {
       await handleSyncSettings(r, res, auth);
       break;
     case 'sync-fillers':
-      // falls into /api/sync logic handled inline in handleSync; keep a lightweight redirect
       await handleSync(r, res);
       break;
     case 'sync-wars':
@@ -2077,29 +2076,36 @@ export default async function handler(req: unknown, res: {
     case 'cwl-clans':
       await handleCwlClans(r, res, auth);
       break;
-    case 'strike-config/global':
-      await handleStrikeConfigGlobal(r, res, auth);
+    case 'strike-config':
+      if (getQuery(r).type === 'global') {
+        await handleStrikeConfigGlobal(r, res, auth);
+      } else {
+        await handleStrikeConfigClan(r, res, auth);
+      }
       break;
-    case 'strike-config/clan':
-      await handleStrikeConfigClan(r, res, auth);
-      break;
-    case 'strikes/pending':
-      await handleStrikesPending(r, res, auth);
-      break;
-    case 'strikes/confirm':
-      await handleStrikesConfirm(r, res, auth);
-      break;
-    case 'strikes/confirmed':
-      await handleStrikesConfirmed(r, res);
-      break;
-    case 'strikes/resolve':
-      await handleStrikesResolve(r, res, auth);
-      break;
-    case 'strikes/reduce':
-      await handleStrikesReduce(r, res, auth);
-      break;
-    case 'strikes/reset':
-      await handleStrikesReset(r, res, auth);
+    case 'strikes':
+      switch (getQuery(r).action) {
+        case 'pending':
+          await handleStrikesPending(r, res, auth);
+          break;
+        case 'confirm':
+          await handleStrikesConfirm(r, res, auth);
+          break;
+        case 'confirmed':
+          await handleStrikesConfirmed(r, res);
+          break;
+        case 'resolve':
+          await handleStrikesResolve(r, res, auth);
+          break;
+        case 'reduce':
+          await handleStrikesReduce(r, res, auth);
+          break;
+        case 'reset':
+          await handleStrikesReset(r, res, auth);
+          break;
+        default:
+          send(res, 404, { ok: false, error: `Unknown strikes action: ${getQuery(r).action}` });
+      }
       break;
     default:
       send(res, 404, { ok: false, error: `Not found. Path: ${path || '(empty)'}` });

@@ -101,7 +101,7 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
-      const response = await fetch(`/api/strikes/confirmed?clan_tag=${encodeURIComponent(clanTag)}`, {
+      const response = await fetch(`/api/strikes?action=confirmed&clan_tag=${encodeURIComponent(clanTag)}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const body = (await response.json().catch(() => ({}))) as {

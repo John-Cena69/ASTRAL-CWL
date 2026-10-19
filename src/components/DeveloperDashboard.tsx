@@ -117,7 +117,7 @@ export default function DeveloperDashboard() {
       if (!accessRole && availableRoles[0]) setAccessRole(availableRoles[0]);
 
       // Load global strike config
-      const configResp = await fetch('/api/strike-config/global', {
+      const configResp = await fetch('/api/strike-config?type=global', {
         headers: session.session?.access_token ? { Authorization: `Bearer ${session.session.access_token}` } : {},
       });
       const configBody = (await configResp.json().catch(() => ({}))) as {
@@ -167,7 +167,7 @@ export default function DeveloperDashboard() {
     setError(null);
     try {
       const { data: session } = await supabase.auth.getSession();
-      const response = await fetch('/api/strike-config/global', {
+      const response = await fetch('/api/strike-config?type=global', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -200,7 +200,7 @@ export default function DeveloperDashboard() {
     setError(null);
     try {
       const { data: session } = await supabase.auth.getSession();
-      const response = await fetch('/api/strike-config/global', {
+      const response = await fetch('/api/strike-config?type=global', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -229,7 +229,7 @@ export default function DeveloperDashboard() {
     setError(null);
     try {
       const { data: session } = await supabase.auth.getSession();
-      const response = await fetch('/api/strike-config/global', {
+      const response = await fetch('/api/strike-config?type=global', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -262,7 +262,7 @@ export default function DeveloperDashboard() {
     setError(null);
     try {
       const { data: session } = await supabase.auth.getSession();
-      const response = await fetch('/api/strike-config/global', {
+      const response = await fetch('/api/strike-config?type=global', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
