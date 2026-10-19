@@ -93,6 +93,10 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
   const [editValues, setEditValues] = useState<Record<string, { value: string; reason: string; note: string; issued_date: string }>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [reducing, setReducing] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetSeason, setResetSeason] = useState('');
+  const [showResetModal, setShowResetModal] = useState(false);
 
   const loadStrikes = async () => {
     if (!supabase) {
@@ -227,6 +231,141 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
     }
   };
 
+  const handleMonthlyReduction = async () => {
+    if (!supabase || reducing) return;
+    if (!window.confirm('Apply Monthly Strike Reduction (-1) to all players with active strikes?')) return;
+    setReducing(true);
+    setError(null);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.access_token;
+      const authUser = session?.session?.user;
+      const profileMetadata = authUser?.user_metadata ?? {};
+      const discordIdentity = authUser?.identities?.find((identity: any) => identity.provider === 'discord');
+      const discordData = discordIdentity?.identity_data ?? {};
+      const removeDiscriminator = (val: unknown) =>
+        typeof val === 'string' ? val.replace(/#0$/, '') : '';
+      const issuedBy = removeDiscriminator(
+        profileMetadata.user_name || discordData.username || profileMetadata.name || 'Unknown'
+      );
+      const response = await fetch('/api/strikes?action=reduce', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          clan_tag: clanTag,
+          reason: 'Monthly Strike Reduction',
+          issued_by: issuedBy,
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        inserted?: number;
+      };
+      if (!response.ok) throw new Error(body.error || `Reduction failed (HTTP ${response.status}).`);
+      if (!body.ok) throw new Error(body.error || 'Reduction failed.');
+      setNotice(`Monthly reduction applied to ${body.inserted ?? 0} player(s).`);
+      await loadStrikes();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reduction failed.');
+    } finally {
+      setReducing(false);
+    }
+  };
+
+  const handleClanGamesReduction = async () => {
+    if (!supabase || reducing) return;
+    setError(null);
+    // For clan games, we reduce all active players by -1 as well (simplified)
+    // In future, this could be extended to select specific players
+    if (!window.confirm('Apply Clan Games Reduction (-1) to all players with active strikes?')) return;
+    setReducing(true);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.access_token;
+      const authUser = session?.session?.user;
+      const profileMetadata = authUser?.user_metadata ?? {};
+      const discordIdentity = authUser?.identities?.find((identity: any) => identity.provider === 'discord');
+      const discordData = discordIdentity?.identity_data ?? {};
+      const removeDiscriminator = (val: unknown) =>
+        typeof val === 'string' ? val.replace(/#0$/, '') : '';
+      const issuedBy = removeDiscriminator(
+        profileMetadata.user_name || discordData.username || profileMetadata.name || 'Unknown'
+      );
+      const response = await fetch('/api/strikes?action=reduce', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          clan_tag: clanTag,
+          reason: 'Clan Games Reduction',
+          issued_by: issuedBy,
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        inserted?: number;
+      };
+      if (!response.ok) throw new Error(body.error || `Reduction failed (HTTP ${response.status}).`);
+      if (!body.ok) throw new Error(body.error || 'Reduction failed.');
+      setNotice(`Clan Games reduction applied to ${body.inserted ?? 0} player(s).`);
+      await loadStrikes();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reduction failed.');
+    } finally {
+      setReducing(false);
+    }
+  };
+
+  const openResetModal = () => {
+    setResetSeason('');
+    setShowResetModal(true);
+  };
+
+  const closeResetModal = () => {
+    setShowResetModal(false);
+  };
+
+  const handleSeasonReset = async () => {
+    if (!supabase || resetting || !resetSeason.trim()) return;
+    setResetting(true);
+    setError(null);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.access_token;
+      const response = await fetch('/api/strikes?action=reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          season: resetSeason.trim(),
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        archived?: number;
+      };
+      if (!response.ok) throw new Error(body.error || `Reset failed (HTTP ${response.status}).`);
+      if (!body.ok) throw new Error(body.error || 'Reset failed.');
+      setNotice(`Season "${resetSeason}" — archived ${body.archived ?? 0} strike(s).`);
+      closeResetModal();
+      await loadStrikes();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reset failed.');
+    } finally {
+      setResetting(false);
+    }
+  };
+
   useEffect(() => {
     void loadStrikes();
   }, [clanTag]);
@@ -277,6 +416,27 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
             className="astral-btn-ghost" title="Refresh strike board">
             {loading ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Clock className="w-4 h-4" />}
             {loading ? 'Loading...' : 'Refresh'}
+          </button>
+          <button
+            onClick={handleMonthlyReduction}
+            disabled={reducing}
+            className="astral-btn-ghost text-xs" title="Monthly Strike Reduction (-1 all)">
+            {reducing ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
+            Monthly Reduction
+          </button>
+          <button
+            onClick={handleClanGamesReduction}
+            disabled={reducing}
+            className="astral-btn-ghost text-xs" title="Clan Games Reduction (-1 all)">
+            {reducing ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
+            Clan Games
+          </button>
+          <button
+            onClick={openResetModal}
+            disabled={resetting}
+            className="astral-btn-ghost text-xs text-rose-300/70 hover:text-rose-200" title="Season Reset">
+            {resetting ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+            Reset Season
           </button>
         </div>
       </div>
@@ -509,6 +669,54 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
               </div>
             </article>
           ))}
+        </div>
+      )}
+
+      {/* === Season Reset Confirmation Modal === */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Confirm season reset">
+          <div
+            className="absolute inset-0 bg-space-950/70 backdrop-blur-sm"
+            onClick={closeResetModal}
+            aria-hidden="true"
+          />
+          <div className="relative bg-space-800 border border-astral-700/30 rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl shadow-space-950">
+            <div className="mx-auto w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center">
+              <Trash2 className="w-6 h-6 text-rose-300" />
+            </div>
+            <h3 className="mt-4 font-display text-lg font-bold text-white">Reset Strikes for Season</h3>
+            <p className="mt-2 text-sm text-astral-200/70">
+              This will archive all active confirmed strikes under the season name below. This cannot be undone.
+            </p>
+            <div className="mt-4">
+              <label className="block text-xs text-astral-300/60 uppercase tracking-wide mb-1">Season Name</label>
+              <input
+                type="text"
+                value={resetSeason}
+                onChange={(e) => setResetSeason(e.target.value)}
+                placeholder="e.g. Sep-Oct 2026"
+                className="astral-input w-full text-sm"
+              />
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={closeResetModal}
+                className="astral-btn-ghost justify-center"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSeasonReset}
+                disabled={resetting || !resetSeason.trim()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/15 px-4 py-2.5 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/25"
+              >
+                {resetting ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Reset Season
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>
