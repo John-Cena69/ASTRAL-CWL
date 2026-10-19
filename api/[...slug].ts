@@ -1911,6 +1911,33 @@ async function handleStrikesConfirmBatch(
   }
 }
 
+// POST /api/strikes?action=clear_pending — delete all pending strikes for a clan
+async function handleStrikesClearPending(
+  req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown },
+  res: { status: (code: number) => { json: (body: unknown) => void } },
+  auth: AuthResult
+): Promise<void> {
+  if (auth.ok === false) {
+    send(res, 401, { ok: false, error: auth.message });
+    return;
+  }
+  const body = readJsonBody(req);
+  const clanTagRaw = String(body.clan_tag ?? '').trim();
+  if (!clanTagRaw) {
+    send(res, 400, { ok: false, error: 'Clan tag is required.' });
+    return;
+  }
+  try {
+    const supabase = adminClient();
+    const clanTag = await resolveClanTag(supabase, clanTagRaw);
+    const { error } = await supabase.from('strikes_pending').delete().eq('clan_tag', clanTag);
+    if (error) throw new Error(error.message);
+    send(res, 200, { ok: true });
+  } catch (error) {
+    send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Clear pending failed.' });
+  }
+}
+
 // POST /api/strikes/reset — archive all confirmed strikes for a season
 async function handleStrikesReset(
   req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown },
@@ -2107,6 +2134,9 @@ export default async function handler(req: unknown, res: {
           break;
         case 'confirm_batch':
           await handleStrikesConfirmBatch(r, res, auth);
+          break;
+        case 'clear_pending':
+          await handleStrikesClearPending(r, res, auth);
           break;
         default:
           send(res, 404, { ok: false, error: `Unknown strikes action: ${getQuery(r).action}` });
