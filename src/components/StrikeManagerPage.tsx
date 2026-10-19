@@ -106,6 +106,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
   const [strikeDate, setStrikeDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [isWarning, setIsWarning] = useState(false);
   const [showReasonDropdown, setShowReasonDropdown] = useState(false);
+  const [showPlayerDropdown, setShowPlayerDropdown] = useState(false);
 
   const loadRoster = async () => {
     if (!supabase) {
@@ -512,17 +513,19 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
             <div className="flex flex-col gap-1">
               <input
                 type="text"
-                value={searchQuery}
+                value={selectedPlayer ? selectedPlayer.player_name : searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={() => setShowPlayerDropdown(true)}
+                onBlur={() => setTimeout(() => setShowPlayerDropdown(false), 150)}
                 placeholder="Search player by name, tag, or Discord..."
                 className="astral-input w-full text-sm"
               />
-              {searchQuery.trim() && filteredRoster.length > 0 && (
-                <div className="bg-space-800/80 border border-astral-700/40 rounded-xl shadow-sm max-h-48 overflow-y-auto">
+              {(showPlayerDropdown || searchQuery.trim()) && filteredRoster.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full bg-space-800 border border-astral-700/30 rounded-xl shadow-xl max-h-48 overflow-y-auto">
                   {filteredRoster.map((p) => (
                     <div
                       key={p.player_tag}
-                      onClick={() => handleSelectPlayer(p)}
+                      onClick={() => { handleSelectPlayer(p); setShowPlayerDropdown(false); }}
                       className={`px-4 py-2.5 text-sm cursor-pointer hover:bg-astral-700/40 flex items-center justify-between ${selectedPlayer?.player_tag === p.player_tag ? 'bg-gold-500/20 border-l-2 border-gold-400' : ''}`}
                     >
                       <div className="flex items-center gap-2 w-full">
@@ -540,10 +543,26 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                   ))}
                 </div>
               )}
-              {searchQuery.trim() && filteredRoster.length === 0 && (
+              {(showPlayerDropdown || searchQuery.trim()) && filteredRoster.length === 0 && (
                 <div className="text-xs text-astral-300/40 italic">No matching players</div>
               )}
             </div>
+            {selectedPlayer && (
+              <div className="flex items-center gap-2 pt-1">
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-xs text-emerald-300">Selected: {selectedPlayer.player_name}</span>
+                <button
+                  onClick={() => {
+                    setSelectedPlayer(null);
+                    setSearchQuery('');
+                  }}
+                  className="p-1 text-rose-300/70 hover:text-rose-200"
+                  title="Clear selection"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col gap-2">
