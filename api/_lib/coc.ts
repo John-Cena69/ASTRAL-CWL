@@ -59,6 +59,7 @@ export interface CocPlayer {
   tag: string;
   name: string;
   townHallLevel: number | null;
+  role?: string;
   clan?: { tag: string; name: string };
 }
 

@@ -119,8 +119,9 @@ function getQuery(req: { url: string; query?: Record<string, string | string[] |
 
   // Also try parsing from URL as fallback
   try {
-    const url = new URL(req.url, 'http://localhost');
-    url.searchParams.forEach((v, k) => {
+    const urlString = typeof req.url === 'string' ? req.url : '';
+    const url = new (URL as any)(urlString, 'http://localhost');
+    url.searchParams.forEach((v: string, k: string) => {
       if (!params[k]) params[k] = v;
     });
   } catch {
@@ -974,13 +975,12 @@ async function handleEditWarWeight(req: { method?: string; url: string; headers:
   const body = readJsonBody(req);
   const clanTagRaw = String(body.clan_tag ?? '').trim();
   const playerTagRaw = String(body.player_tag ?? '').trim();
-  const value = body.value ?? null;
-
+  const valueNum = Number(body.value);
   if (!clanTagRaw || !playerTagRaw) {
     send(res, 400, { ok: false, error: 'Clan tag and player tag are required.' });
     return;
   }
-  if (value === null || value === undefined || !Number.isInteger(value) || value < 0) {
+  if (body.value === null || body.value === undefined || !Number.isInteger(valueNum) || valueNum < 0) {
     send(res, 400, { ok: false, error: 'Value must be a whole number of 0 or greater.' });
     return;
   }
@@ -998,8 +998,8 @@ async function handleEditWarWeight(req: { method?: string; url: string; headers:
       const { error, data } = await supabase
         .from('war_weights')
         .update({
-          value,
-          war_weight: value * 5,
+          value: valueNum,
+          war_weight: valueNum * 5,
           updated_date: new Date().toISOString(),
         })
         .eq('clan_tag', clanTag)
@@ -1015,7 +1015,7 @@ async function handleEditWarWeight(req: { method?: string; url: string; headers:
       // Also sync to clan_players so the home page roster reflects the change
       await supabase
         .from('clan_players')
-        .update({ war_weight: value * 5, updated_date: new Date().toISOString() })
+        .update({ war_weight: valueNum * 5, updated_date: new Date().toISOString() })
         .eq('clan_tag', clanTag)
         .eq('player_tag', playerTag);
 
