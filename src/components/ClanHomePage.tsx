@@ -8,6 +8,7 @@ import {
   Save,
   Shield,
   Star,
+  Trash2,
   X,
 } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
@@ -102,6 +103,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
 
   // Edit form state
   const [editingValues, setEditingValues] = useState<Record<string, { tag: string; role: string; joinDate: string }>>({});
+  const [deletingTag, setDeletingTag] = useState<string | null>(null);
 
   const loadRoster = async () => {
     if (!supabase) {
@@ -296,6 +298,36 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
     }
   };
 
+  const deletePlayer = async (playerTag: string) => {
+    if (!supabase || !window.confirm(`Remove ${playerTag} from the roster?`)) return;
+    setDeletingTag(playerTag);
+    setError(null);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const response = await fetch('/api/delete-clan-player', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ clan_tag: resolvedClanTag, player_tag: playerTag }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(body.error || `Delete failed (HTTP ${response.status}).`);
+      if (!body.ok) throw new Error(body.error || 'Delete failed.');
+      setNotice(`Player ${playerTag} removed from roster.`);
+      await loadRoster();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed.');
+    } finally {
+      setDeletingTag(null);
+    }
+  };
+
   useEffect(() => {
     void loadRoster();
   }, [clanTag]);
@@ -451,6 +483,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
                   <th className="px-4 py-3 text-center text-astral-300/60 font-medium">Status</th>
                   <th className="px-4 py-3 text-center text-astral-300/60 font-medium">Days in Clan</th>
                   <th className="px-4 py-3 text-center text-astral-300/60 font-medium">War Weight</th>
+                  <th className="px-4 py-3 text-center text-astral-300/60 font-medium w-12">Remove</th>
                 </tr>
               </thead>
               <tbody>
@@ -467,6 +500,8 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
                           roles={ROLE_OPTIONS}
                           values={editingValues[player.id]}
                           onChange={(field, value) => updateEditingValue(player.id, field, value)}
+                          onDelete={() => deletePlayer(player.player_tag)}
+                          isDeleting={deletingTag === player.player_tag}
                         />
                       ) : (
                         <ViewRow
@@ -541,12 +576,16 @@ function EditRow({
   roles,
   values,
   onChange,
+  onDelete,
+  isDeleting,
 }: {
   player: ClanRosterPlayer;
   index: number;
   roles: string[];
   values?: { tag: string; role: string; joinDate: string };
   onChange: (field: 'tag' | 'role' | 'joinDate', value: string) => void;
+  onDelete?: (playerTag: string) => void;
+  isDeleting: boolean;
 }) {
   if (!values) return null;
 
@@ -602,6 +641,23 @@ function EditRow({
       </td>
       <td className="px-4 py-3 text-center text-astral-100 font-mono text-gold-300">
         {player.war_weight ?? '—'}
+      </td>
+      <td className="px-4 py-3 text-center">
+        {onDelete && (
+          <button
+            type="button"
+            onClick={() => void onDelete(player.player_tag)}
+            disabled={isDeleting}
+            className="p-2 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded-lg transition"
+            title={`Remove ${player.player_name} from roster`}
+          >
+            {isDeleting ? (
+              <LoaderCircle className="w-4 h-4 animate-spin" />
+            ) : (
+              <Trash2 className="w-4 h-4" />
+            )}
+          </button>
+        )}
       </td>
     </>
   );
