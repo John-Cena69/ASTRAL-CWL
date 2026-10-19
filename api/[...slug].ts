@@ -1906,6 +1906,8 @@ async function handleStrikesConfirmBatch(
     }));
     const { error } = await supabase.from('strikes_confirmed').insert(rows);
     if (error) throw new Error(error.message);
+    // Also delete from pending strikes for this clan since they are now confirmed
+    await supabase.from('strikes_pending').delete().eq('clan_tag', clanTag);
     send(res, 200, { ok: true, confirmed: rows.length });
   } catch (error) {
     send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Confirm batch failed.' });
