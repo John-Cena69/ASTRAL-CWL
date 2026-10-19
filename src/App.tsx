@@ -35,6 +35,8 @@ import { isClanPage } from '@/types';
 import { buildAllMissingMentions } from '@/discordMentions';
 import ClanHomePage from '@/components/ClanHomePage';
 import ClanWarWeightsPage from '@/components/ClanWarWeightsPage';
+import StrikeBoardPage from '@/components/StrikeBoardPage';
+import StrikeManagerPage from '@/components/StrikeManagerPage';
 import DeveloperDashboard from '@/components/DeveloperDashboard';
 
 const DEFAULT_SHEET_URL =
@@ -394,7 +396,11 @@ export default function App() {
       {isClanPage(activePage)
         ? activePage.page === 'war-weights'
           ? <ClanWarWeightsPage clanTag={activePage.clanTag} clanName={activePage.clanName} />
-          : <ClanHomePage clanTag={activePage.clanTag} clanName={activePage.clanName} />
+          : activePage.page === 'strike-board'
+            ? <StrikeBoardPage clanTag={activePage.clanTag} clanName={activePage.clanName} />
+            : activePage.page === 'strike-manager'
+              ? <StrikeManagerPage clanTag={activePage.clanTag} clanName={activePage.clanName} />
+              : <ClanHomePage clanTag={activePage.clanTag} clanName={activePage.clanName} />
         : activePage === 'developer' ? <DeveloperDashboard /> : activePage === 'accounts' ? <AccountsPage /> : activePage === 'wars' ? <WarsPage /> : activePage === 'clans' ? <ClansPage /> : <>
 
       {/* Toolbar */}

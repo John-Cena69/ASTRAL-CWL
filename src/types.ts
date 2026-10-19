@@ -26,7 +26,7 @@ export type ColumnKey =
 
 export type PageKey = 'roster' | 'accounts' | 'wars' | 'clans' | 'developer';
 
-export type ClanPageKey = 'home' | 'war-weights';
+export type ClanPageKey = 'home' | 'war-weights' | 'strike-board' | 'strike-manager';
 
 export interface ClanPage {
   type: 'clan';

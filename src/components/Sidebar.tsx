@@ -28,7 +28,7 @@ interface ClanSection {
   items: {
     key: string;
     label: string;
-    page: 'home' | 'war-weights';
+    page: 'home' | 'war-weights' | 'strike-board' | 'strike-manager';
   }[];
 }
 
@@ -176,6 +176,8 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
         ...(clanPageAccess[clan.clan_tag] ? [
           { key: `clan-home:${clan.clan_tag}`, label: 'Home', page: 'home' as const },
           { key: `clan-weights:${clan.clan_tag}`, label: 'War Weights', page: 'war-weights' as const },
+          { key: `clan-strike-board:${clan.clan_tag}`, label: 'Strike Board', page: 'strike-board' as const },
+          { key: `clan-strike-manager:${clan.clan_tag}`, label: 'Strike Manager', page: 'strike-manager' as const },
         ] : []),
       ],
     }));
