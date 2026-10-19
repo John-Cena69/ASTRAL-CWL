@@ -437,7 +437,7 @@ export default function App() {
                       className="fixed inset-0 z-20"
                       onClick={() => setShowColumnMenu(false)}
                     />
-                    <div className="absolute right-0 mt-2 w-56 astral-card p-2 z-30 shadow-2xl shadow-space-900/80">
+                    <div className="absolute right-0 mt-2 w-56 bg-space-900/95 border border-astral-700/50 rounded-2xl p-2 z-30 shadow-2xl shadow-space-950">
                       <p className="px-3 py-2 text-xs text-astral-300/60 font-medium uppercase tracking-wide">
                         Toggle Columns
                       </p>
