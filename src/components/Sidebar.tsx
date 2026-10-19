@@ -193,7 +193,7 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
         />
       )}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-64 transform border-r border-astral-700/20 bg-space-900/95 backdrop-blur-md transition-transform duration-200 ${
+        className={`fixed inset-y-0 left-0 z-40 w-64 transform flex flex-col h-full border-r border-astral-700/20 bg-space-900/95 backdrop-blur-md transition-transform duration-200 ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
         aria-label="Site navigation"
