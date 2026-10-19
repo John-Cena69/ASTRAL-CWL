@@ -1831,7 +1831,8 @@ async function handleStrikesReduce(
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
     const now = new Date().toISOString();
-    // If no specific players, reduce all players with active confirmed strikes
+
+    // Determine target players
     let targets: string[] = playerTags;
     if (targets.length === 0) {
       const { data: activeStrikes, error: strikeError } = await supabase
@@ -1842,22 +1843,51 @@ async function handleStrikesReduce(
       if (strikeError) throw new Error(strikeError.message);
       targets = [...new Set((activeStrikes ?? []).map((s) => s.player_tag))];
     }
-    const rows = targets.map((tag) => ({
-      clan_tag: clanTag,
-      player_tag: String(tag),
-      player_name: '',
-      discord_id: null,
-      value: -1,
-      reason,
-      note: null,
-      issued_date: now,
-      confirmed_date: now,
-      confirmed_by: issued_by,
-      is_active: true,
-      season,
-      created_at: now,
-      updated_at: now,
-    }));
+
+    // Fetch current totals per player so we can cap reduction at 0
+    const { data: allStrikes, error: totalsError } = await supabase
+      .from('strikes_confirmed')
+      .select('player_tag, value')
+      .eq('clan_tag', clanTag)
+      .eq('is_active', true);
+    if (totalsError) throw new Error(totalsError.message);
+
+    const playerTotals = new Map<string, number>();
+    for (const s of (allStrikes ?? [])) {
+      const current = playerTotals.get(s.player_tag) ?? 0;
+      playerTotals.set(s.player_tag, current + (s.value ?? 0));
+    }
+
+    const rows = [];
+    for (const tag of targets) {
+      const currentTotal = playerTotals.get(String(tag)) ?? 0;
+      // Cap reduction at 0 — never let total go below 0
+      const reduction = Math.min(1, currentTotal);
+      if (reduction <= 0) continue;
+
+      rows.push({
+        clan_tag: clanTag,
+        player_tag: String(tag),
+        player_name: '',
+        discord_id: null,
+        value: -reduction,
+        reason,
+        note: null,
+        issued_date: now,
+        confirmed_date: now,
+        confirmed_by: issued_by,
+        is_active: true,
+        season,
+        created_at: now,
+        updated_at: now,
+      });
+    }
+
+    if (rows.length === 0) {
+      send(res, 200, { ok: true, inserted: 0, message: 'No players needed reduction' });
+      return;
+    }
+
     const { error } = await supabase.from('strikes_confirmed').insert(rows);
     if (error) throw new Error(error.message);
     send(res, 200, { ok: true, inserted: rows.length });
