@@ -339,6 +339,38 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     }
   };
 
+  const handleClearPending = async () => {
+    if (!supabase) return;
+    if (!window.confirm('Clear all pending strikes? This cannot be undone.')) return;
+    setIssuing(true);
+    setError(null);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const response = await fetch('/api/strikes?action=clear_pending', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ clan_tag: clanTag }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(body.error || `Failed to clear pending strikes (HTTP ${response.status}).`);
+      if (!body.ok) throw new Error(body.error || 'Failed to clear pending strikes.');
+      setPendingStrikes([]);
+      await loadPending();
+      setNotice('Pending strikes cleared.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear pending strikes.');
+    } finally {
+      setIssuing(false);
+    }
+  };
+
   const handleSaveConfig = async (action: string, payload: Record<string, unknown>) => {
     if (!supabase) return;
     setIssuing(true);
@@ -638,9 +670,11 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
           </div>
           <div className="px-6 py-4 border-t border-astral-700/30 flex justify-end gap-2">
             <button
-              onClick={() => setPendingStrikes([])}
+              onClick={handleClearPending}
+              disabled={issuing}
               className="astral-btn-ghost" title="Clear all">
-              <Trash2 className="w-4 h-4" /> Clear All
+              {issuing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Clear All
             </button>
             <button
               onClick={handleConfirmBatch}
