@@ -103,6 +103,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
 
   // Edit form state
   const [editingValues, setEditingValues] = useState<Record<string, { tag: string; role: string; joinDate: string }>>({});
+  const [pendingDeleteTag, setPendingDeleteTag] = useState<string | null>(null);
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
 
   const loadRoster = async () => {
@@ -299,9 +300,10 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
   };
 
   const deletePlayer = async (playerTag: string) => {
-    if (!supabase || !window.confirm(`Remove ${playerTag} from the roster?`)) return;
+    if (!supabase) return;
     setDeletingTag(playerTag);
     setError(null);
+    setPendingDeleteTag(null);
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
@@ -418,6 +420,47 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
         </div>
       )}
 
+      {pendingDeleteTag && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Confirm removal">
+          <div
+            className="absolute inset-0 bg-space-950/70 backdrop-blur-sm"
+            onClick={() => setPendingDeleteTag(null)}
+            aria-hidden="true"
+          />
+          <div className="relative bg-space-800 border border-astral-700/30 rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl shadow-space-950">
+            <div className="mx-auto w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center">
+              <Trash2 className="w-6 h-6 text-rose-300" />
+            </div>
+            <h3 className="mt-4 font-display text-lg font-bold text-white">Remove player from roster?</h3>
+            <p className="mt-2 text-sm text-astral-200/70">
+              <span className="font-mono text-gold-300">{pendingDeleteTag}</span> will be removed from this clan's roster. This cannot be undone.
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingDeleteTag(null)}
+                className="astral-btn-ghost justify-center"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void deletePlayer(pendingDeleteTag!)}
+                disabled={deletingTag === pendingDeleteTag}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/15 px-4 py-2.5 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/25"
+              >
+                {deletingTag === pendingDeleteTag ? (
+                  <LoaderCircle className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4" />
+                )}
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAddPlayer && (
         <form
           onSubmit={(e) => {
@@ -500,7 +543,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
                           roles={ROLE_OPTIONS}
                           values={editingValues[player.id]}
                           onChange={(field, value) => updateEditingValue(player.id, field, value)}
-                          onDelete={() => deletePlayer(player.player_tag)}
+                          onDelete={() => setPendingDeleteTag(player.player_tag)}
                           isDeleting={deletingTag === player.player_tag}
                         />
                       ) : (
