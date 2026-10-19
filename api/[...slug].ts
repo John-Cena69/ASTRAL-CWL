@@ -1845,17 +1845,27 @@ async function handleStrikesReduce(
     }
 
     // Fetch current totals per player so we can cap reduction at 0
+    // Also fetch player_name and discord_id so reduction rows carry them
     const { data: allStrikes, error: totalsError } = await supabase
       .from('strikes_confirmed')
-      .select('player_tag, value')
+      .select('player_tag, value, player_name, discord_id')
       .eq('clan_tag', clanTag)
-      .eq('is_active', true);
+      .eq('is_active', true)
+      .order('issued_date', { ascending: false });
     if (totalsError) throw new Error(totalsError.message);
 
     const playerTotals = new Map<string, number>();
+    const playerInfo = new Map<string, { player_name: string; discord_id: string | null }>();
     for (const s of (allStrikes ?? [])) {
       const current = playerTotals.get(s.player_tag) ?? 0;
       playerTotals.set(s.player_tag, current + (s.value ?? 0));
+      // Store the first (most recent) non-empty player_name / discord_id per player
+      if (!playerInfo.has(s.player_tag) && s.player_name && s.player_name.trim()) {
+        playerInfo.set(s.player_tag, {
+          player_name: s.player_name,
+          discord_id: s.discord_id ?? null,
+        });
+      }
     }
 
     const rows = [];
@@ -1865,11 +1875,13 @@ async function handleStrikesReduce(
       const reduction = Math.min(1, currentTotal);
       if (reduction <= 0) continue;
 
+      const info = playerInfo.get(String(tag)) ?? { player_name: '', discord_id: null };
+
       rows.push({
         clan_tag: clanTag,
         player_tag: String(tag),
-        player_name: '',
-        discord_id: null,
+        player_name: info.player_name,
+        discord_id: info.discord_id,
         value: -reduction,
         reason,
         note: null,
