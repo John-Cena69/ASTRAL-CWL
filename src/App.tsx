@@ -60,10 +60,21 @@ export default function App() {
   const [copiedMissing, setCopiedMissing] = useState(false);
   const [activePage, setActivePage] = useState<ActivePage>('roster');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
     if (window.matchMedia('(min-width: 1024px)').matches) setSidebarOpen(true);
   }, []);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 300);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   useEffect(() => {
     let active = true;
@@ -575,6 +586,19 @@ export default function App() {
           Astral Management · Data from Google Sheets & the CoC API
         </div>
       </footer>
+
+      {scrolled && (
+        <button
+          onClick={scrollToTop}
+          className="fixed bottom-6 right-6 z-50 astral-btn-primary rounded-full p-3"
+          aria-label="Scroll to top"
+        >
+          <span className="sr-only">Scroll to top</span>
+          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+          </svg>
+        </button>
+      )}
       </>}
     </div>
   );
