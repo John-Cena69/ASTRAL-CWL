@@ -210,7 +210,7 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
             <X className="w-4 h-4" />
           </button>
         </div>
-        <nav className="p-3 space-y-5 overflow-y-auto">
+        <nav className="p-3 space-y-5 overflow-y-auto min-h-0 flex-1">
           {SIDEBAR_SECTIONS.filter((section) => globalPageAccess[section.title.toLowerCase()] !== false).map((section) => (
             <div key={section.title}>
               <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-widest text-astral-300/40">
