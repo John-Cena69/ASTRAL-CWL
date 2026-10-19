@@ -104,6 +104,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
   const [strikeNote, setStrikeNote] = useState('');
   const [strikeDate, setStrikeDate] = useState('');
   const [isWarning, setIsWarning] = useState(false);
+  const [showReasonDropdown, setShowReasonDropdown] = useState(false);
 
   const loadRoster = async () => {
     if (!supabase) return;
@@ -488,7 +489,9 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
               <input
                 type="text"
                 value={strikeReason}
+                onFocus={() => setShowReasonDropdown(true)}
                 onChange={(e) => {
+                  setShowReasonDropdown(true);
                   setStrikeReason(e.target.value);
                   // Auto-suggest matching reason
                   const typed = e.target.value.toLowerCase();
@@ -497,15 +500,19 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                     setStrikeValue(match.value.toString());
                   }
                 }}
+                onBlur={() => setTimeout(() => setShowReasonDropdown(false), 150)}
                 placeholder="Type or select a strike reason..."
                 className="astral-input w-full text-sm"
               />
-              {availableReasons.length > 0 && (
+              {showReasonDropdown && availableReasons.length > 0 && (
                 <div className="absolute z-20 mt-1 w-full bg-space-800 border border-astral-700/30 rounded-xl shadow-xl max-h-48 overflow-y-auto">
                   {availableReasons.map((r) => (
                     <div
                       key={`${r.source}-${r.text}`}
-                      onClick={() => handleReasonSelect(r.text)}
+                      onClick={() => {
+                        handleReasonSelect(r.text);
+                        setShowReasonDropdown(false);
+                      }}
                       className="px-4 py-2 text-sm cursor-pointer hover:bg-astral-700/30"
                     >
                       <div className="text-astral-200">{r.text}</div>
