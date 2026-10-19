@@ -12,6 +12,7 @@ import {
   toUnixSeconds,
 } from './_lib/coc.js';
 import { calculateFwaResult, getFwaPoints, lookupPoints } from './_lib/fwa.js';
+import { playerbaseAdminClient } from './_lib/backend.js';
 
 /* ───────────────────── config ───────────────────── */
 
@@ -486,8 +487,9 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
     const discordIdMap: Record<string, string> = {};
     if (tags.length > 0) {
       try {
-        const { data: linked, error: linkedError } = await supabase
-          .from('playerbase')
+        const playerbase = playerbaseAdminClient();
+        const { data: linked, error: linkedError } = await playerbase
+          .from('linked_players')
           .select('player_tag, discord_id')
           .in('player_tag', tags);
         if (!linkedError && linked) {
@@ -740,8 +742,9 @@ async function handleAddClanPlayer(req: { method?: string; url: string; headers:
 
     let discordId: string | null = null;
     try {
-      const { data: linked, error: linkedError } = await supabase
-        .from('playerbase')
+      const playerbase = playerbaseAdminClient();
+      const { data: linked, error: linkedError } = await playerbase
+        .from('linked_players')
         .select('discord_id')
         .eq('player_tag', playerTag)
         .maybeSingle();
