@@ -413,6 +413,13 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
     if (existing) {
       existing.strikes.push(s);
       existing.total += s.value ?? 0;
+      // Prefer non-empty player_name / discord_id when merging
+      if (!existing.playerName && s.player_name && s.player_name.trim()) {
+        existing.playerName = s.player_name;
+      }
+      if (!existing.discordId && s.discord_id) {
+        existing.discordId = s.discord_id;
+      }
     } else {
       playerMap.set(s.player_tag, {
         playerName: s.player_name,
