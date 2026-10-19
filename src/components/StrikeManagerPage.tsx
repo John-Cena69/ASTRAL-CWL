@@ -408,13 +408,18 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     setError(null);
     try {
       const { data: session } = await supabase.auth.getSession();
-      const response = await fetch('/api/strike-config?type=global', {
+      const token = session.session?.access_token;
+      const isClanAction = action.startsWith('clan_');
+      const endpoint = isClanAction
+        ? `/api/strike-config?type=clan&clan_tag=${encodeURIComponent(clanTag)}`
+        : '/api/strike-config?type=global';
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(session.session?.access_token ? { Authorization: `Bearer ${session.session.access_token}` } : {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ action, clan_tag: clanTag, ...payload }),
+        body: JSON.stringify({ action: isClanAction ? action.replace(/^clan_/, '') : action, clan_tag: clanTag, ...payload }),
       });
       const body = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
