@@ -1593,7 +1593,7 @@ async function handleStrikeConfigClan(
         } else {
           const { error } = await supabase
             .from('clan_strike_overrides')
-            .insert({ clan_tag, global_reason_id, is_enabled, custom_reason_text, custom_value });
+            .insert({ clan_tag: clanTag, global_reason_id, is_enabled, custom_reason_text, custom_value });
           if (error) throw new Error(error.message);
         }
         send(res, 200, { ok: true });
@@ -1621,7 +1621,7 @@ async function handleStrikeConfigClan(
         } else {
           const { error } = await supabase
             .from('clan_strike_custom')
-            .insert({ clan_tag, value, reason_text, is_active });
+            .insert({ clan_tag: clanTag, value, reason_text, is_active });
           if (error) throw new Error(error.message);
         }
         send(res, 200, { ok: true });
@@ -1661,6 +1661,8 @@ async function handleStrikeConfigClan(
       return;
     }
     send(res, 400, { ok: false, error: 'Unknown strike config action.' });
+  } catch (error) {
+    send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Failed to process strike config.' });
   }
 }
 
