@@ -1011,6 +1011,14 @@ async function handleEditWarWeight(req: { method?: string; url: string; headers:
         send(res, 404, { ok: false, error: 'Player not found in war weights.' });
         return;
       }
+
+      // Also sync to clan_players so the home page roster reflects the change
+      await supabase
+        .from('clan_players')
+        .update({ war_weight: value * 5, updated_date: new Date().toISOString() })
+        .eq('clan_tag', clanTag)
+        .eq('player_tag', playerTag);
+
       send(res, 200, { ok: true, updated: data[0] });
     } catch (error) {
       send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Update failed.' });
@@ -1082,6 +1090,13 @@ async function handleEditWarWeights(req: { method?: string; url: string; headers
       if (error) throw new Error(error.message);
       if (data?.length) updated += 1;
       else failed.push(update.playerTag);
+
+      // Also sync to clan_players so the home page roster reflects the change
+      await supabase
+        .from('clan_players')
+        .update({ war_weight: update.value * 5, updated_date: now })
+        .eq('clan_tag', clanTag)
+        .eq('player_tag', update.playerTag);
     }
 
     send(res, 200, { ok: true, updated, failed });
