@@ -1939,6 +1939,47 @@ async function handleStrikesClearPending(
   }
 }
 
+// POST /api/strikes?action=edit_strike — edit a confirmed strike
+async function handleStrikesEdit(
+  req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown },
+  res: { status: (code: number) => { json: (body: unknown) => void } },
+  auth: AuthResult
+): Promise<void> {
+  if (auth.ok === false) {
+    send(res, 401, { ok: false, error: auth.message });
+    return;
+  }
+  const body = readJsonBody(req);
+  const id = String(body.id ?? '');
+  const value = body.value;
+  const reason = String(body.reason ?? '').trim();
+  const note = String(body.note ?? '').trim() || null;
+  const issued_date = String(body.issued_date ?? '');
+  const edited_by = String(body.edited_by ?? '');
+  if (!id || !reason || value === null || value === undefined || !issued_date || !edited_by) {
+    send(res, 400, { ok: false, error: 'Strike ID, value, reason, date, and editor are required.' });
+    return;
+  }
+  try {
+    const supabase = adminClient();
+    const { error } = await supabase
+      .from('strikes_confirmed')
+      .update({
+        value: Number(value),
+        reason,
+        note,
+        issued_date,
+        edited_by,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id);
+    if (error) throw new Error(error.message);
+    send(res, 200, { ok: true });
+  } catch (error) {
+    send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Edit failed.' });
+  }
+}
+
 // POST /api/strikes/reset — archive all confirmed strikes for a season
 async function handleStrikesReset(
   req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown },
@@ -2138,6 +2179,9 @@ export default async function handler(req: unknown, res: {
           break;
         case 'clear_pending':
           await handleStrikesClearPending(r, res, auth);
+          break;
+        case 'edit_strike':
+          await handleStrikesEdit(r, res, auth);
           break;
         default:
           send(res, 404, { ok: false, error: `Unknown strikes action: ${getQuery(r).action}` });

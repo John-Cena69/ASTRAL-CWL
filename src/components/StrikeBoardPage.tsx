@@ -5,13 +5,13 @@ import {
   CopyIcon,
   LoaderCircle,
   Edit2,
-  Trash2,
   Shield,
   Star,
   X,
+  Save,
+  Trash2,
 } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
-import type { ClanWarWeight } from '@/types';
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
@@ -43,6 +43,7 @@ interface StrikeRow {
   issued_date: string | null;
   confirmed_date: string | null;
   confirmed_by: string | null;
+  edited_by: string | null;
   is_active: boolean | null;
   season: string | null;
   created_at: string | null;
@@ -88,6 +89,8 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
   const [strikes, setStrikes] = useState<StrikeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<Record<string, { value: string; reason: string; note: string; issued_date: string }>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -150,6 +153,80 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
     }
   };
 
+  const startEdit = (strike: StrikeRow) => {
+    setEditValues((prev) => ({
+      ...prev,
+      [strike.id]: {
+        value: String(strike.value ?? ''),
+        reason: strike.reason ?? '',
+        note: strike.note ?? '',
+        issued_date: strike.issued_date ? new Date(strike.issued_date).toISOString().split('T')[0] : '',
+      },
+    }));
+    setEditingId(strike.id);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditValues({});
+  };
+
+  const updateEditValue = (id: string, field: 'value' | 'reason' | 'note' | 'issued_date', value: string) => {
+    setEditValues((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], [field]: value },
+    }));
+  };
+
+  const saveEdit = async (id: string) => {
+    if (!supabase) return;
+    const values = editValues[id];
+    if (!values) return;
+    setResolvingId(id);
+    setError(null);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.access_token;
+      const authUser = session?.session?.user;
+      const profileMetadata = authUser?.user_metadata ?? {};
+      const discordIdentity = authUser?.identities?.find((identity: any) => identity.provider === 'discord');
+      const discordData = discordIdentity?.identity_data ?? {};
+      const removeDiscriminator = (val: unknown) =>
+        typeof val === 'string' ? val.replace(/#0$/, '') : '';
+      const editedBy = removeDiscriminator(
+        profileMetadata.user_name || discordData.username || profileMetadata.name || 'Unknown'
+      );
+      const response = await fetch('/api/strikes?action=edit_strike', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          id,
+          value: parseFloat(values.value),
+          reason: values.reason,
+          note: values.note,
+          issued_date: values.issued_date,
+          edited_by: editedBy,
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(body.error || `Edit failed (HTTP ${response.status}).`);
+      if (!body.ok) throw new Error(body.error || 'Edit failed.');
+      setNotice('Strike updated.');
+      cancelEdit();
+      await loadStrikes();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Edit failed.');
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
   useEffect(() => {
     void loadStrikes();
   }, [clanTag]);
@@ -198,7 +275,8 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
           <button
             onClick={() => void loadStrikes()}
             className="astral-btn-ghost" title="Refresh strike board">
-            <LoaderCircle className="w-4 h-4 animate-spin" /> Refresh
+            {loading ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Clock className="w-4 h-4" />}
+            {loading ? 'Loading...' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -260,13 +338,13 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
                       <h3 className="font-display text-lg font-bold text-white">
                         {playerName}
                       </h3>
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="font-mono text-gold-400">{playerTag}</span>
+                      <div className="flex items-center gap-2 text-sm flex-col sm:flex-row">
+                        <span className="font-mono text-gold-400">#{playerTag.replace(/^#/, '')}</span>
                         {discordId && (
                           <>
                             <span className="text-astral-300/50">|</span>
                             <span className="text-astral-200 cursor-pointer hover:text-gold-300">
-                              @{discordId}
+                              {discordId}
                             </span>
                             {discordId && <CopyButton value={`<@${discordId}`} />}
                           </>
@@ -297,48 +375,135 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
                     </tr>
                   </thead>
                   <tbody>
-                    {strikes.map((s, idx) => (
-                      <tr
-                        key={s.id}
-                        className="border-t border-astral-700/15 hover:bg-astral-700/10 transition-colors group"
-                      >
-                        <td className="px-4 py-3 text-astral-300/40 font-mono text-xs">
-                          {idx + 1}
-                        </td>
-                        <td className="px-4 py-3 text-astral-100 font-medium">
-                          <span className={`font-mono ${valueColor(s.value ?? 0)}`}>
-                            {s.value ?? 0}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-astral-200">
-                          {s.reason || '—'}
-                        </td>
-                        <td className="px-4 py-3 text-astral-300/60">
-                          {s.note || '—'}
-                        </td>
-                        <td className="px-4 py-3 text-astral-100 font-mono">
-                          {formatDate(s.issued_date)}
-                        </td>
-                        <td className="px-4 py-3 text-astral-300/60 text-xs">
-                          {s.confirmed_by || '—'}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => void resolveStrike(s.id)}
-                            disabled={resolvingId === s.id}
-                            className="p-2 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded-lg transition"
-                            title={`Resolve strike ${s.id.slice(0, 8)}`}
-                          >
-                            {resolvingId === s.id ? (
-                              <LoaderCircle className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="w-4 h-4" />
-                            )}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {strikes.map((s, idx) => {
+                      const isEditing = editingId === s.id;
+                      const ev = editValues[s.id];
+                      return (
+                        <tr
+                          key={s.id}
+                          className="border-t border-astral-700/15 hover:bg-astral-700/10 transition-colors group"
+                        >
+                          {isEditing ? (
+                            <>
+                              <td className="px-4 py-3 text-astral-300/40 font-mono text-xs">
+                                {idx + 1}
+                              </td>
+                              <td className="px-4 py-3">
+                                <input
+                                  type="number"
+                                  step="0.5"
+                                  value={ev.value}
+                                  onChange={(e) => updateEditValue(s.id, 'value', e.target.value)}
+                                  className="astral-input w-full text-xs text-center"
+                                />
+                              </td>
+                              <td className="px-4 py-3">
+                                <input
+                                  type="text"
+                                  value={ev.reason}
+                                  onChange={(e) => updateEditValue(s.id, 'reason', e.target.value)}
+                                  className="astral-input w-full text-xs"
+                                />
+                              </td>
+                              <td className="px-4 py-3">
+                                <input
+                                  type="text"
+                                  value={ev.note}
+                                  onChange={(e) => updateEditValue(s.id, 'note', e.target.value)}
+                                  className="astral-input w-full text-xs"
+                                />
+                              </td>
+                              <td className="px-4 py-3">
+                                <input
+                                  type="date"
+                                  value={ev.issued_date}
+                                  onChange={(e) => updateEditValue(s.id, 'issued_date', e.target.value)}
+                                  className="astral-input w-full text-xs"
+                                />
+                              </td>
+                              <td className="px-4 py-3 text-astral-300/60 text-xs">
+                                {s.confirmed_by || '—'}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => void saveEdit(s.id)}
+                                  disabled={resolvingId === s.id}
+                                  className="p-2 text-emerald-300/70 hover:text-emerald-200 hover:bg-emerald-500/10 rounded-lg transition"
+                                  title="Save"
+                                >
+                                  {resolvingId === s.id ? (
+                                    <LoaderCircle className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Save className="w-4 h-4" />
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={cancelEdit}
+                                  className="p-2 text-astral-300/70 hover:text-white hover:bg-astral-700/10 rounded-lg"
+                                  title="Cancel"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td className="px-4 py-3 text-astral-300/40 font-mono text-xs">
+                                {idx + 1}
+                              </td>
+                              <td className="px-4 py-3 text-astral-100 font-medium">
+                                <span className={`font-mono ${valueColor(s.value ?? 0)}`}>
+                                  {s.value ?? 0}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-astral-200">
+                                {s.reason || '—'}
+                              </td>
+                              <td className="px-4 py-3 text-astral-300/60">
+                                {s.note || '—'}
+                              </td>
+                              <td className="px-4 py-3 text-astral-100 font-mono">
+                                {formatDate(s.issued_date)}
+                              </td>
+                              <td className="px-4 py-3 text-astral-300/60 text-xs">
+                                {s.confirmed_by || '—'}
+                                {s.edited_by && (
+                                  <div className="text-[10px] text-astral-400/60 mt-0.5">
+                                    edited by: {s.edited_by}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => void startEdit(s)}
+                                  disabled={resolvingId === s.id}
+                                  className="p-2 text-gold-300/70 hover:text-gold-200 hover:bg-gold-500/10 rounded-lg transition"
+                                  title="Edit strike"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void resolveStrike(s.id)}
+                                  disabled={resolvingId === s.id}
+                                  className="p-2 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded-lg transition"
+                                  title={`Resolve strike ${s.id.slice(0, 8)}`}
+                                >
+                                  {resolvingId === s.id ? (
+                                    <LoaderCircle className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4" />
+                                  )}
+                                </button>
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
