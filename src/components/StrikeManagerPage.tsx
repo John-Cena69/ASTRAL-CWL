@@ -108,6 +108,9 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
   const [showReasonDropdown, setShowReasonDropdown] = useState(false);
   const [showPlayerDropdown, setShowPlayerDropdown] = useState(false);
 
+  // Custom override edit state (per-reason pending text/value edits)
+  const [customOverrideEdits, setCustomOverrideEdits] = useState<Record<string, { text: string; val: string }>>({});
+
   const loadRoster = async () => {
     if (!supabase) {
       setLoading(false);
@@ -160,6 +163,17 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
       if (cBody.ok) {
         setOverrides(cBody.overrides ?? []);
         setCustomReasons(cBody.custom ?? []);
+        // Initialize custom override edit state from existing overrides
+        const edits: Record<string, { text: string; val: string }> = {};
+        (cBody.overrides ?? []).forEach((o) => {
+          if (o.global_reason_id) {
+            edits[o.global_reason_id] = {
+              text: o.custom_reason_text ?? '',
+              val: o.custom_value != null ? String(o.custom_value) : '',
+            };
+          }
+        });
+        setCustomOverrideEdits(edits);
       }
     } catch {
       // ignore
@@ -827,8 +841,10 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                 {globalReasons.map((reason) => {
                   const override = overrides.find((o) => o.global_reason_id === reason.id);
                   const isEnabled = override ? override.is_enabled : true;
-                  const customText = override?.custom_reason_text ?? '';
-                  const customVal = override?.custom_value != null ? String(override.custom_value) : '';
+                  const edit = customOverrideEdits[reason.id] ?? {
+                    text: override?.custom_reason_text ?? '',
+                    val: override?.custom_value != null ? String(override.custom_value) : '',
+                  };
                   return (
                     <div key={reason.id} className="p-3 bg-space-900/40 rounded-xl border border-astral-700/30">
                       <div className="flex items-center justify-between gap-3 mb-2">
@@ -844,8 +860,8 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                               id: override?.id ?? '',
                               global_reason_id: reason.id,
                               is_enabled: !isEnabled,
-                              custom_reason_text: customText || undefined,
-                              custom_value: customVal ? parseFloat(customVal) : undefined,
+                              custom_reason_text: edit.text || undefined,
+                              custom_value: edit.val ? parseFloat(edit.val) : undefined,
                             })}
                             className="h-4 w-4 accent-gold-400"
                           />
@@ -855,9 +871,12 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                           <label className="text-xs text-astral-300/60 uppercase tracking-wide">Custom Text</label>
                           <input
                             type="text"
-                            value={customText}
+                            value={edit.text}
                             onChange={(e) => {
-                              // stored locally, saved on checkbox toggle
+                              setCustomOverrideEdits((prev) => ({
+                                ...prev,
+                                [reason.id]: { ...prev[reason.id], text: e.target.value },
+                              }));
                             }}
                             placeholder="Custom reason text"
                             className="astral-input w-full text-xs"
@@ -868,9 +887,12 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                           <input
                             type="number"
                             step="0.5"
-                            value={customVal}
+                            value={edit.val}
                             onChange={(e) => {
-                              // stored locally, saved on checkbox toggle
+                              setCustomOverrideEdits((prev) => ({
+                                ...prev,
+                                [reason.id]: { ...prev[reason.id], val: e.target.value },
+                              }));
                             }}
                             placeholder="0.5"
                             className="astral-input w-full text-xs"
