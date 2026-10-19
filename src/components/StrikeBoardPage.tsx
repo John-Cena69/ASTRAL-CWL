@@ -276,9 +276,9 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
                   </div>
                   <div className="text-right">
                     <span className={`text-2xl font-bold ${valueColor(total)}`}>
-                      {total} Strike{total !== 1 ? 's' : ''}
+                      {total}
                     </span>
-                    <p className="text-xs text-astral-300/50">Total active value</p>
+                    <p className="text-xs text-astral-300/50">Total Strike(s)</p>
                   </div>
                 </div>
               </div>
