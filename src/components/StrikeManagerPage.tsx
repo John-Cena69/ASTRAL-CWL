@@ -261,7 +261,8 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     setStrikeReason(reasonText);
   };
 
-  const handleAddToBatch = () => {
+  const handleAddToBatch = async () => {
+    if (!supabase) return;
     if (!selectedPlayer) {
       setError('Select a player first.');
       return;
@@ -282,17 +283,43 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
 
     const finalValue = isWarning ? 0 : val;
 
+    const newStrike = {
+      player_tag: selectedPlayer.player_tag,
+      player_name: selectedPlayer.player_name,
+      discord_id: selectedPlayer.discord_id ?? null,
+      value: finalValue,
+      reason: strikeReason.trim(),
+      note: strikeNote.trim(),
+      issued_date: strikeDate,
+    };
+
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const response = await fetch('/api/strikes?action=pending', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ clan_tag: clanTag, strikes: [newStrike] }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(body.error || `Failed to add strike (HTTP ${response.status}).`);
+      if (!body.ok) throw new Error(body.error || 'Failed to add strike.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add strike.');
+      return;
+    }
+
     setPendingStrikes((prev) => [
       ...prev,
       {
         id: null,
-        player_tag: selectedPlayer.player_tag,
-        player_name: selectedPlayer.player_name,
-        discord_id: selectedPlayer.discord_id ?? null,
-        value: finalValue,
-        reason: strikeReason.trim(),
-        note: strikeNote.trim(),
-        issued_date: strikeDate,
+        ...newStrike,
       },
     ]);
 
