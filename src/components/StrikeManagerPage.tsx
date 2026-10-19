@@ -509,7 +509,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
         <div className="p-6 space-y-4">
           <div className="flex flex-col gap-2">
             <label className="text-xs text-astral-300/60 uppercase tracking-wide">Player</label>
-            <div className="relative">
+            <div className="flex flex-col gap-1">
               <input
                 type="text"
                 value={searchQuery}
@@ -517,13 +517,13 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                 placeholder="Search player by name, tag, or Discord..."
                 className="astral-input w-full text-sm"
               />
-              {searchQuery.trim() && (
-                <div className="absolute z-20 mt-1 w-full bg-space-800 border border-astral-700/30 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+              {searchQuery.trim() && filteredRoster.length > 0 && (
+                <div className="bg-space-800/80 border border-astral-700/40 rounded-xl shadow-sm max-h-48 overflow-y-auto">
                   {filteredRoster.map((p) => (
                     <div
                       key={p.player_tag}
                       onClick={() => handleSelectPlayer(p)}
-                      className={`px-4 py-2 text-sm cursor-pointer hover:bg-astral-700/30 flex items-center justify-between ${selectedPlayer?.player_tag === p.player_tag ? 'bg-gold-500/15 border-l-4 border-gold-400' : ''}`}
+                      className={`px-4 py-2.5 text-sm cursor-pointer hover:bg-astral-700/40 flex items-center justify-between ${selectedPlayer?.player_tag === p.player_tag ? 'bg-gold-500/20 border-l-2 border-gold-400' : ''}`}
                     >
                       <div className="flex items-center gap-2 w-full">
                         {selectedPlayer?.player_tag === p.player_tag && (
@@ -536,12 +536,12 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                           </div>
                         </div>
                       </div>
-                      {selectedPlayer?.player_tag === p.player_tag && (
-                        <Check className="w-4 h-4 text-gold-400" />
-                      )}
                     </div>
                   ))}
                 </div>
+              )}
+              {searchQuery.trim() && filteredRoster.length === 0 && (
+                <div className="text-xs text-astral-300/40 italic">No matching players</div>
               )}
             </div>
           </div>
