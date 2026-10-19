@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   AlertCircle,
+  Check,
   Clock,
   CopyIcon,
   LoaderCircle,
@@ -97,6 +98,10 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
   const [resetting, setResetting] = useState(false);
   const [resetSeason, setResetSeason] = useState('');
   const [showResetModal, setShowResetModal] = useState(false);
+  const [showMonthlyConfirm, setShowMonthlyConfirm] = useState(false);
+  const [showClanGamesConfirm, setShowClanGamesConfirm] = useState(false);
+  const [showClanGamesPicker, setShowClanGamesPicker] = useState(false);
+  const [clanGamesSelectedPlayers, setClanGamesSelectedPlayers] = useState<Set<string>>(new Set());
 
   const loadStrikes = async () => {
     if (!supabase) {
@@ -134,6 +139,15 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
+      const authUser = session?.session?.user;
+      const profileMetadata = authUser?.user_metadata ?? {};
+      const discordIdentity = authUser?.identities?.find((identity: any) => identity.provider === 'discord');
+      const discordData = discordIdentity?.identity_data ?? {};
+      const removeDiscriminator = (val: unknown) =>
+        typeof val === 'string' ? val.replace(/#0$/, '') : '';
+      const issuedBy = removeDiscriminator(
+        profileMetadata.user_name || discordData.username || profileMetadata.name || 'Unknown'
+      );
       const response = await fetch('/api/strikes/resolve', {
         method: 'POST',
         headers: {
@@ -233,9 +247,14 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
 
   const handleMonthlyReduction = async () => {
     if (!supabase || reducing) return;
-    if (!window.confirm('Apply Monthly Strike Reduction (-1) to all players with active strikes?')) return;
+    setShowMonthlyConfirm(true);
+  };
+
+  const executeMonthlyReduction = async () => {
+    if (!supabase) return;
     setReducing(true);
     setError(null);
+    setShowMonthlyConfirm(false);
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session?.session?.access_token;
@@ -278,11 +297,20 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
 
   const handleClanGamesReduction = async () => {
     if (!supabase || reducing) return;
-    setError(null);
-    // For clan games, we reduce all active players by -1 as well (simplified)
-    // In future, this could be extended to select specific players
-    if (!window.confirm('Apply Clan Games Reduction (-1) to all players with active strikes?')) return;
+    setShowClanGamesPicker(true);
+  };
+
+  const executeClanGamesReduction = async () => {
+    if (!supabase || reducing) return;
+    const selected = Array.from(clanGamesSelectedPlayers);
+    if (selected.length === 0) {
+      setError('Select at least one player.');
+      return;
+    }
     setReducing(true);
+    setError(null);
+    setShowClanGamesConfirm(false);
+    setShowClanGamesPicker(false);
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session?.session?.access_token;
@@ -303,6 +331,7 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
         },
         body: JSON.stringify({
           clan_tag: clanTag,
+          player_tags: selected,
           reason: 'Clan Games Reduction',
           issued_by: issuedBy,
         }),
@@ -427,7 +456,7 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
           <button
             onClick={handleClanGamesReduction}
             disabled={reducing}
-            className="astral-btn-ghost text-xs" title="Clan Games Reduction (-1 all)">
+            className="astral-btn-ghost text-xs" title="Clan Games Reduction">
             {reducing ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
             Clan Games
           </button>
@@ -669,6 +698,163 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
               </div>
             </article>
           ))}
+        </div>
+      )}
+
+      {/* === Monthly Reduction Confirmation Modal === */}
+      {showMonthlyConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Confirm monthly reduction">
+          <div
+            className="absolute inset-0 bg-space-950/70 backdrop-blur-sm"
+            onClick={() => setShowMonthlyConfirm(false)}
+            aria-hidden="true"
+          />
+          <div className="relative bg-space-800 border border-astral-700/30 rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl shadow-space-950">
+            <div className="mx-auto w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+              <Clock className="w-6 h-6 text-amber-300" />
+            </div>
+            <h3 className="mt-4 font-display text-lg font-bold text-white">Monthly Strike Reduction</h3>
+            <p className="mt-2 text-sm text-astral-200/70">
+              This will add -1 strike to every player with active strikes (capped at 0). This cannot be undone.
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setShowMonthlyConfirm(false)}
+                className="astral-btn-ghost justify-center"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeMonthlyReduction}
+                disabled={reducing}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-4 py-2.5 text-sm font-semibold text-amber-200 transition hover:bg-amber-500/25"
+              >
+                {reducing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Clock className="w-4 h-4" />}
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* === Clan Games Player Picker Modal === */}
+      {showClanGamesPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Select players for Clan Games reduction">
+          <div
+            className="absolute inset-0 bg-space-950/70 backdrop-blur-sm"
+            onClick={() => setShowClanGamesPicker(false)}
+            aria-hidden="true"
+          />
+          <div className="relative bg-space-800 border border-astral-700/30 rounded-2xl p-6 w-full max-w-md shadow-2xl shadow-space-950">
+            <div className="mx-auto w-12 h-12 rounded-xl bg-gold-500/10 border border-gold-500/30 flex items-center justify-center">
+              <Clock className="w-6 h-6 text-gold-300" />
+            </div>
+            <h3 className="mt-4 font-display text-lg font-bold text-white">Clan Games Reduction</h3>
+            <p className="mt-2 text-sm text-astral-200/70">
+              Select players who completed Clan Games. Each selected player gets -1 strike (capped at 0).
+            </p>
+            <div className="mt-4 max-h-60 overflow-y-auto space-y-1">
+              {playerEntries.map(({ playerName, playerTag, discordId, total }) => {
+                const isSelected = clanGamesSelectedPlayers.has(playerTag);
+                return (
+                  <div
+                    key={playerTag}
+                    onClick={() => {
+                      if (isSelected) {
+                        setClanGamesSelectedPlayers((prev) => {
+                          const next = new Set(prev);
+                          next.delete(playerTag);
+                          return next;
+                        });
+                      } else {
+                        setClanGamesSelectedPlayers((prev) => {
+                          const next = new Set(prev);
+                          next.add(playerTag);
+                          return next;
+                        });
+                      }
+                    }}
+                    className={`flex items-center justify-between px-4 py-2.5 rounded-xl cursor-pointer hover:bg-astral-700/40 transition ${isSelected ? 'bg-gold-500/20 border border-gold-400/50' : 'border border-transparent'}`}
+                  >
+                    <div className="flex items-center gap-2 w-full min-w-0">
+                      <div className="flex items-center gap-2">
+                        {isSelected && <Check className="w-3.5 h-3.5 text-gold-400 flex-shrink-0" />}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-astral-100 font-medium truncate">{playerName}</div>
+                          <div className="text-xs text-astral-300/50 truncate">
+                            {playerTag} {total !== 0 ? `· ${total} Strike(s)` : ''}
+                          </div>
+                        </div>
+                      </div>
+                      <span className={`text-xs font-mono ${valueColor(total)}`}>
+                        {total}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mt-3 text-xs text-astral-300/50">
+              Selected: {clanGamesSelectedPlayers.size} player(s)
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setShowClanGamesPicker(false)}
+                className="astral-btn-ghost justify-center"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowClanGamesConfirm(true)}
+                disabled={clanGamesSelectedPlayers.size === 0}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-gold-500/40 bg-gold-500/15 px-4 py-2.5 text-sm font-semibold text-gold-200 transition hover:bg-gold-500/25"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* === Clan Games Reduction Confirmation Modal === */}
+      {showClanGamesConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Confirm clan games reduction">
+          <div
+            className="absolute inset-0 bg-space-950/70 backdrop-blur-sm"
+            onClick={() => setShowClanGamesConfirm(false)}
+            aria-hidden="true"
+          />
+          <div className="relative bg-space-800 border border-astral-700/30 rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl shadow-space-950">
+            <div className="mx-auto w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+              <Clock className="w-6 h-6 text-amber-300" />
+            </div>
+            <h3 className="mt-4 font-display text-lg font-bold text-white">Confirm Clan Games Reduction</h3>
+            <p className="mt-2 text-sm text-astral-200/70">
+              This will add -1 strike (capped at 0) to {clanGamesSelectedPlayers.size} selected player(s). This cannot be undone.
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setShowClanGamesConfirm(false)}
+                className="astral-btn-ghost justify-center"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeClanGamesReduction}
+                disabled={reducing}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-4 py-2.5 text-sm font-semibold text-amber-200 transition hover:bg-amber-500/25"
+              >
+                {reducing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Clock className="w-4 h-4" />}
+                Apply
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
