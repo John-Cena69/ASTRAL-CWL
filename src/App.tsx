@@ -291,7 +291,7 @@ export default function App() {
         onClose={() => setSidebarOpen(false)}
       />
 
-      <header className="relative z-10 border-b border-astral-700/20 bg-space-900/40 backdrop-blur-sm">
+      <header className="sticky top-0 z-20 border-b border-astral-700/20 bg-space-900/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
