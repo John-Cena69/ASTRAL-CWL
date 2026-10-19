@@ -1887,6 +1887,7 @@ async function handleStrikesConfirmBatch(
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
     const now = new Date().toISOString();
+    const confirmedBy = String(body.confirmed_by ?? '');
     const rows = strikes.map((s: Record<string, unknown>) => ({
       clan_tag: clanTag,
       player_tag: String(s.player_tag ?? ''),
@@ -1897,7 +1898,7 @@ async function handleStrikesConfirmBatch(
       note: String(s.note ?? '') || null,
       issued_date: String(s.issued_date ?? now),
       confirmed_date: now,
-      confirmed_by: String(s.confirmed_by ?? ''),
+      confirmed_by: confirmedBy,
       is_active: true,
       season: null,
       created_at: now,
