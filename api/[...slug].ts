@@ -1673,7 +1673,7 @@ async function handleStrikesPending(
   res: { status: (code: number) => { json: (body: unknown) => void } },
   auth: AuthResult
 ): Promise<void> {
-  if (!auth.ok) {
+  if (auth.ok === false) {
     send(res, 401, { ok: false, error: auth.message });
     return;
   }
@@ -1741,7 +1741,7 @@ async function handleStrikesConfirm(
   res: { status: (code: number) => { json: (body: unknown) => void } },
   auth: AuthResult
 ): Promise<void> {
-  if (!auth.ok) {
+  if (auth.ok === false) {
     send(res, 401, { ok: false, error: auth.message });
     return;
   }
@@ -1830,7 +1830,7 @@ async function handleStrikesResolve(
   res: { status: (code: number) => { json: (body: unknown) => void } },
   auth: AuthResult
 ): Promise<void> {
-  if (!auth.ok) {
+  if (auth.ok === false) {
     send(res, 401, { ok: false, error: auth.message });
     return;
   }
@@ -1856,7 +1856,7 @@ async function handleStrikesReduce(
   res: { status: (code: number) => { json: (body: unknown) => void } },
   auth: AuthResult
 ): Promise<void> {
-  if (!auth.ok) {
+  if (auth.ok === false) {
     send(res, 401, { ok: false, error: auth.message });
     return;
   }
