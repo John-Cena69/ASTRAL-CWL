@@ -799,6 +799,47 @@ async function handleAddClanPlayer(req: { method?: string; url: string; headers:
   }
 }
 
+// POST /api/delete-clan-player — remove player from clan roster
+async function handleDeleteClanPlayer(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
+  if (req.method !== 'POST') {
+    send(res, 405, { ok: false, error: 'Use POST.' });
+    return;
+  }
+  const body = readJsonBody(req);
+  const clanTagRaw = String(body.clan_tag ?? '').trim();
+  const playerTagRaw = String(body.player_tag ?? '').trim();
+  if (!clanTagRaw || !playerTagRaw) {
+    send(res, 400, { ok: false, error: 'Clan tag and player tag are required.' });
+    return;
+  }
+
+  try {
+    const supabase = adminClient();
+    const clanTag = await resolveClanTag(supabase, clanTagRaw);
+    if (!await canAccessClanPage(req, clanTag, 'clan_home')) {
+      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+      return;
+    }
+    const playerTag = `#${playerTagRaw.toUpperCase().replace(/^#+/, '')}`;
+
+    const { error, data } = await supabase
+      .from('clan_players')
+      .delete()
+      .eq('clan_tag', clanTag)
+      .eq('player_tag', playerTag)
+      .select();
+
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) {
+      send(res, 404, { ok: false, error: 'Player not found in this clan.' });
+      return;
+    }
+    send(res, 200, { ok: true, deleted: data[0] });
+  } catch (error) {
+    send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Delete player failed.' });
+  }
+}
+
 // GET /api/war-weights?clan_tag=#TAG — war weights for clan
 async function handleWarWeights(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined> }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
   if (req.method !== 'GET') {
@@ -1430,6 +1471,9 @@ export default async function handler(req: unknown, res: {
       break;
     case 'add-clan-player':
       await handleAddClanPlayer(r, res);
+      break;
+    case 'delete-clan-player':
+      await handleDeleteClanPlayer(r, res);
       break;
     case 'war-weights':
       await handleWarWeights(r, res);
