@@ -58,6 +58,11 @@ export default function DeveloperDashboard() {
   const [newReasonText, setNewReasonText] = useState('');
   const [savingConfig, setSavingConfig] = useState(false);
 
+  // Season reset state
+  const [resetting, setResetting] = useState(false);
+  const [resetSeason, setResetSeason] = useState('');
+  const [showResetModal, setShowResetModal] = useState(false);
+
   const loadClans = async () => {
     if (!supabase) {
       setError('Supabase is not configured.');
@@ -211,6 +216,40 @@ export default function DeveloperDashboard() {
       setError(err instanceof Error ? err.message : 'Delete failed.');
     } finally {
       setSavingConfig(false);
+    }
+  };
+
+  const handleSeasonReset = async () => {
+    if (!supabase || resetting || !resetSeason.trim()) return;
+    setResetting(true);
+    setError(null);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const response = await fetch('/api/strikes?action=reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          season: resetSeason.trim(),
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        archived?: number;
+      };
+      if (!response.ok) throw new Error(body.error || `Reset failed (HTTP ${response.status}).`);
+      if (!body.ok) throw new Error(body.error || 'Reset failed.');
+      setMessage(`Season "${resetSeason}" — archived ${body.archived ?? 0} strike(s).`);
+      setShowResetModal(false);
+      await loadAccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reset failed.');
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -519,6 +558,26 @@ export default function DeveloperDashboard() {
               </div>
             </div>
           </section>
+          <section className="astral-card p-5 space-y-5 mt-4">
+            <div>
+              <h3 className="font-semibold text-astral-100">Season Reset</h3>
+              <p className="mt-1 text-sm text-astral-300/60">
+                Archive all active confirmed strikes across every clan under a season name. This cannot be undone.
+              </p>
+            </div>
+            <div className="space-y-4">
+              <button
+                onClick={() => {
+                  setResetSeason('');
+                  setShowResetModal(true);
+                }}
+                className="astral-btn-primary text-xs px-3 py-2 w-full"
+              >
+                {resetting ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                Reset Strikes for Season
+              </button>
+            </div>
+          </section>
           <p className="mt-1 text-sm text-astral-300/60">
             Developer only. Add or remove tracked clans that appear as sidebar categories.
           </p>
@@ -666,6 +725,54 @@ export default function DeveloperDashboard() {
           </div>
         </section>
       </div>
+
+      {/* === Season Reset Modal === */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Confirm season reset">
+          <div
+            className="absolute inset-0 bg-space-950/70 backdrop-blur-sm"
+            onClick={() => setShowResetModal(false)}
+            aria-hidden="true"
+          />
+          <div className="relative bg-space-800 border border-astral-700/30 rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl shadow-space-950">
+            <div className="mx-auto w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center">
+              <Trash2 className="w-6 h-6 text-rose-300" />
+            </div>
+            <h3 className="mt-4 font-display text-lg font-bold text-white">Reset Strikes for Season</h3>
+            <p className="mt-2 text-sm text-astral-200/70">
+              This will archive all active confirmed strikes across every clan under the season name below. This cannot be undone.
+            </p>
+            <div className="mt-4">
+              <label className="block text-xs text-astral-300/60 uppercase tracking-wide mb-1">Season Name</label>
+              <input
+                type="text"
+                value={resetSeason}
+                onChange={(e) => setResetSeason(e.target.value)}
+                placeholder="e.g. Sep-Oct 2026"
+                className="astral-input w-full text-sm"
+              />
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setShowResetModal(false)}
+                className="astral-btn-ghost justify-center"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSeasonReset}
+                disabled={resetting || !resetSeason.trim()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/15 px-4 py-2.5 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/25"
+              >
+                {resetting ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Reset Season
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
