@@ -505,16 +505,16 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-fixed">
                   <thead>
                     <tr className="bg-space-700/40">
                       <th className="px-4 py-3 text-left text-astral-300/60 font-medium w-12">#</th>
-                      <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Value</th>
-                      <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Reason</th>
-                      <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Note</th>
-                      <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Issued Date</th>
-                      <th className="px-4 py-3 text-left text-astral-300/60 font-medium">Confirmed By</th>
-                      <th className="px-4 py-3 text-right text-astral-300/60 font-medium w-14">Action</th>
+                      <th className="px-4 py-3 text-left text-astral-300/60 font-medium w-16">Value</th>
+                      <th className="px-4 py-3 text-left text-astral-300/60 font-medium w-48">Reason</th>
+                      <th className="px-4 py-3 text-left text-astral-300/60 font-medium w-24">Note</th>
+                      <th className="px-4 py-3 text-left text-astral-300/60 font-medium w-24">Issued Date</th>
+                      <th className="px-4 py-3 text-left text-astral-300/60 font-medium w-20">Confirmed By</th>
+                      <th className="px-4 py-3 text-right text-astral-300/60 font-medium w-12">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -528,10 +528,10 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
                         >
                           {isEditing ? (
                             <>
-                              <td className="px-4 py-3 text-astral-300/40 font-mono text-xs">
+                              <td className="px-4 py-3 text-astral-300/40 font-mono text-xs w-12">
                                 {idx + 1}
                               </td>
-                              <td className="px-4 py-3">
+                              <td className="px-4 py-3 w-16">
                                 <input
                                   type="number"
                                   step="0.5"
@@ -540,7 +540,7 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
                                   className="astral-input w-full text-xs text-center"
                                 />
                               </td>
-                              <td className="px-4 py-3">
+                              <td className="px-4 py-3 w-48">
                                 <input
                                   type="text"
                                   value={ev.reason}
@@ -548,7 +548,7 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
                                   className="astral-input w-full text-xs"
                                 />
                               </td>
-                              <td className="px-4 py-3">
+                              <td className="px-4 py-3 w-24">
                                 <input
                                   type="text"
                                   value={ev.note}
@@ -556,7 +556,7 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
                                   className="astral-input w-full text-xs"
                                 />
                               </td>
-                              <td className="px-4 py-3">
+                              <td className="px-4 py-3 w-24">
                                 <input
                                   type="date"
                                   value={ev.issued_date}
@@ -564,7 +564,7 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
                                   className="astral-input w-full text-xs"
                                 />
                               </td>
-                              <td className="px-4 py-3 text-astral-300/60 text-xs">
+                              <td className="px-4 py-3 text-astral-300/60 text-xs w-20">
                                 {s.confirmed_by || '—'}
                               </td>
                               <td className="px-4 py-3 text-right">
@@ -593,32 +593,32 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
                             </>
                           ) : (
                             <>
-                              <td className="px-4 py-3 text-astral-300/40 font-mono text-xs">
+                              <td className="px-4 py-3 text-astral-300/40 font-mono text-xs w-12">
                                 {idx + 1}
                               </td>
-                              <td className="px-4 py-3 text-astral-100 font-medium">
+                              <td className="px-4 py-3 text-astral-100 font-medium w-16">
                                 <span className={`font-mono ${valueColor(s.value ?? 0)}`}>
                                   {s.value ?? 0}
                                 </span>
                               </td>
-                              <td className="px-4 py-3 text-astral-200">
+                              <td className="px-4 py-3 text-astral-200 w-48 truncate">
                                 {s.reason || '—'}
                               </td>
-                              <td className="px-4 py-3 text-astral-300/60">
+                              <td className="px-4 py-3 text-astral-300/60 w-24 truncate">
                                 {s.note || '—'}
                               </td>
-                              <td className="px-4 py-3 text-astral-100 font-mono">
+                              <td className="px-4 py-3 text-astral-100 font-mono w-24">
                                 {formatDate(s.issued_date)}
                               </td>
-                              <td className="px-4 py-3 text-astral-300/60 text-xs">
+                              <td className="px-4 py-3 text-astral-300/60 text-xs w-20 truncate">
                                 {s.confirmed_by || '—'}
                                 {s.edited_by && (
-                                  <div className="text-[10px] text-astral-400/60 mt-0.5">
+                                  <div className="text-[10px] text-astral-400/60 mt-0.5 truncate">
                                     edited by: {s.edited_by}
                                   </div>
                                 )}
                               </td>
-                              <td className="px-4 py-3 text-right">
+                              <td className="px-4 py-3 text-right w-12">
                                 <button
                                   type="button"
                                   onClick={() => void startEdit(s)}
