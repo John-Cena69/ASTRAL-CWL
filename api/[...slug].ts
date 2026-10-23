@@ -1415,12 +1415,13 @@ async function handleStrikeConfigGlobal(
   res: { status: (code: number) => { json: (body: unknown) => void } },
   auth: AuthResult
 ): Promise<void> {
-  if (!isDeveloper(auth)) {
-    send(res, 403, { ok: false, error: 'Developer role required.' });
-    return;
-  }
   const supabase = adminClient();
   if (req.method === 'GET') {
+    // GET is available to all authenticated users (not just developers)
+    if (!auth.ok) {
+      send(res, 401, { ok: false, error: auth.message });
+      return;
+    }
     const { data: reasons, error: rError } = await supabase
       .from('strike_reasons_global')
       .select('*')
@@ -1437,6 +1438,11 @@ async function handleStrikeConfigGlobal(
     return;
   }
   const body = readJsonBody(req);
+  // POST requires Developer role
+  if (!isDeveloper(auth)) {
+    send(res, 403, { ok: false, error: 'Developer role required.' });
+    return;
+  }
   const action = String(body.action ?? '');
   if (action === 'save_reason') {
     const id = String(body.id ?? '');
@@ -1491,12 +1497,13 @@ async function handleStrikeConfigClan(
   res: { status: (code: number) => { json: (body: unknown) => void } },
   auth: AuthResult
 ): Promise<void> {
-  if (!isDeveloper(auth)) {
-    send(res, 403, { ok: false, error: 'Developer role required.' });
-    return;
-  }
   const supabase = adminClient();
   if (req.method === 'GET') {
+    // GET is available to all authenticated users
+    if (!auth.ok) {
+      send(res, 401, { ok: false, error: auth.message });
+      return;
+    }
     const q = getQuery(req);
     const clanTag = q.clan_tag ?? '';
     if (!clanTag) {
@@ -1522,6 +1529,11 @@ async function handleStrikeConfigClan(
   }
   if (req.method !== 'POST') {
     send(res, 405, { ok: false, error: 'Use GET or POST.' });
+    return;
+  }
+  // POST requires Developer role
+  if (!isDeveloper(auth)) {
+    send(res, 403, { ok: false, error: 'Developer role required.' });
     return;
   }
   const body = readJsonBody(req);
