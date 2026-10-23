@@ -510,7 +510,7 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
                     <tr className="bg-space-700/40">
                       <th className="px-4 py-3 text-left text-astral-300/60 font-medium w-12">#</th>
                       <th className="px-4 py-3 text-left text-astral-300/60 font-medium w-16">Value</th>
-                      <th className="px-4 py-3 text-left text-astral-300/60 font-medium w-48">Reason</th>
+                      <th className="px-4 py-3 text-left text-astral-300/60 font-medium w-64">Reason</th>
                       <th className="px-4 py-3 text-left text-astral-300/60 font-medium w-24">Note</th>
                       <th className="px-4 py-3 text-left text-astral-300/60 font-medium w-24">Issued Date</th>
                       <th className="px-4 py-3 text-left text-astral-300/60 font-medium w-20">Confirmed By</th>
@@ -540,7 +540,7 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
                                   className="astral-input w-full text-xs text-center"
                                 />
                               </td>
-                              <td className="px-4 py-3 w-48">
+                              <td className="px-4 py-3 w-64">
                                 <input
                                   type="text"
                                   value={ev.reason}
@@ -601,7 +601,7 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
                                   {s.value ?? 0}
                                 </span>
                               </td>
-                              <td className="px-4 py-3 text-astral-200 w-48 truncate">
+                              <td className="px-4 py-3 text-astral-200 w-64">
                                 {s.reason || '—'}
                               </td>
                               <td className="px-4 py-3 text-astral-300/60 w-24 truncate">
