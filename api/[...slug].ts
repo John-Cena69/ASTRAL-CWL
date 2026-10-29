@@ -515,9 +515,11 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
     let roleMismatches = 0;
     for (const player of existing ?? []) {
       const member = membersByTag.get(player.player_tag);
+      const isFiller = normalizeRoleForComparison(player.role ?? '') === 'filler';
+      const roleMatches = normalizeRoleForComparison(player.role ?? '') === normalizeRoleForComparison(member?.role ?? '');
       const status = !member
         ? 'Missing from Clan'
-        : normalizeRoleForComparison(player.role ?? '') === normalizeRoleForComparison(member.role)
+        : isFiller || roleMatches
           ? 'All good'
           : 'Role Mismatch';
       if (status === 'Missing from Clan') missing += 1;
