@@ -63,6 +63,8 @@ export default function App() {
   const [activePage, setActivePage] = useState<ActivePage>('roster');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [sidebarReady, setSidebarReady] = useState(false);
+  const [sheetLoaded, setSheetLoaded] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -184,7 +186,8 @@ export default function App() {
         const result = await fetchClansFromSheet(DEFAULT_SHEET_URL, '', '');
         setClans(result.clans);
         setLastUpdated(new Date());
-        if (initialLoading) setInitialLoading(false);
+        setSheetLoaded(true);
+        if (sheetLoaded && sidebarReady) setInitialLoading(false);
         if (result.clans.length === 0) {
           setError('No clan data found in the spreadsheet. Check its headers and sharing settings.');
         }
@@ -199,6 +202,12 @@ export default function App() {
 
     return () => window.clearInterval(refreshTimer);
   }, [user]);
+
+  useEffect(() => {
+    if (sheetLoaded && sidebarReady && initialLoading) {
+      setInitialLoading(false);
+    }
+  }, [sheetLoaded, sidebarReady, initialLoading]);
 
   const handleSort = useCallback(
     (column: ColumnKey) => {
@@ -316,6 +325,7 @@ export default function App() {
         }}
         onInitialNavigate={setActivePage}
         onClose={() => setSidebarOpen(false)}
+        onReady={() => setSidebarReady(true)}
       />
 
       <header className="sticky top-0 z-20 border-b border-astral-700/20 bg-space-900/80 backdrop-blur-md">
