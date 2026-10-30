@@ -176,6 +176,7 @@ export default function App() {
 
     if (!DEFAULT_SHEET_URL) {
       setError('The spreadsheet URL is not configured. Add VITE_SHEET_URL to .env.local and restart the app.');
+      setSheetLoaded(true);
       return;
     }
 
@@ -317,6 +318,8 @@ export default function App() {
     );
   }
 
+  const isRosterPage = activePage === 'roster';
+
   // Main app - Sidebar renders immediately so it can load data in background
   // Loading overlay shows until both sheet data and sidebar data are loaded
   return (
@@ -331,7 +334,7 @@ export default function App() {
         }}
         onInitialNavigate={setActivePage}
         onClose={() => setSidebarOpen(false)}
-        onReady={() => setSidebarReady(true)}
+        onReady={handleSidebarReady}
       />
 
       {/* Loading overlay — shows until both sheet data and sidebar data are loaded */}
@@ -437,6 +440,7 @@ export default function App() {
         </section>
       )}
 
+      {/* Non-roster pages */}
       {isClanPage(activePage)
         ? activePage.page === 'war-weights'
           ? <ClanWarWeightsPage clanTag={activePage.clanTag} clanName={activePage.clanName} />
@@ -445,190 +449,199 @@ export default function App() {
             : activePage.page === 'strike-manager'
               ? <StrikeManagerPage clanTag={activePage.clanTag} clanName={activePage.clanName} />
               : <ClanHomePage clanTag={activePage.clanTag} clanName={activePage.clanName} />
-        : activePage === 'developer' ? <DeveloperDashboard /> : activePage === 'accounts' ? <AccountsPage /> : activePage === 'wars' ? <WarsPage /> : activePage === 'clans' ? <ClansPage /> : null}
+        : activePage === 'developer' ? <DeveloperDashboard />
+        : activePage === 'accounts' ? <AccountsPage />
+        : activePage === 'wars' ? <WarsPage />
+        : activePage === 'clans' ? <ClansPage />
+        : null}
 
-      {/* Toolbar */}
-      <div className="relative z-30 sticky top-0 bg-space-900/80 backdrop-blur-md border-b border-astral-700/20 overflow-visible">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            {/* Search */}
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-astral-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search players, tags, clans..."
-                className="astral-input w-full pl-10"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-astral-300/50 hover:text-white transition"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+      {/* Roster page — only rendered on the Roster tab */}
+      {isRosterPage && (
+        <>
+          {/* Toolbar */}
+          <div className="relative z-30 sticky top-0 bg-space-900/80 backdrop-blur-md border-b border-astral-700/20 overflow-visible">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                {/* Search */}
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-astral-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search players, tags, clans..."
+                    className="astral-input w-full pl-10"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-astral-300/50 hover:text-white transition"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {/* Column toggle */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowColumnMenu((v) => !v)}
+                      className="astral-btn-ghost text-sm"
+                    >
+                      {showColumnMenu ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                      <span className="hidden sm:inline">Columns</span>
+                      {hiddenCount > 0 && (
+                        <span className="ml-1 px-1.5 py-0.5 rounded-full bg-gold-500/20 text-gold-300 text-xs font-bold">
+                          {hiddenCount} hidden
+                        </span>
+                      )}
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+
+                    {showColumnMenu && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-20"
+                          onClick={() => setShowColumnMenu(false)}
+                        />
+                        <div className="absolute right-0 mt-2 w-56 bg-space-900/95 border border-astral-700/50 rounded-2xl p-2 z-30 shadow-2xl shadow-space-950">
+                          <p className="px-3 py-2 text-xs text-astral-300/60 font-medium uppercase tracking-wide">
+                            Toggle Columns
+                          </p>
+                          {columns.map((col) => (
+                            <button
+                              key={col.key}
+                              onClick={() => toggleColumn(col.key)}
+                              className="flex items-center justify-between w-full px-3 py-2 rounded-lg hover:bg-astral-700/20 transition text-sm"
+                            >
+                              <span className={col.visible ? 'text-astral-100' : 'text-astral-300/40'}>
+                                {col.label}
+                              </span>
+                              {col.visible ? (
+                                <Eye className="w-4 h-4 text-gold-400" />
+                              ) : (
+                                <EyeOff className="w-4 h-4 text-astral-300/40" />
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => void copyAllMissing()}
+                    className="astral-btn-ghost text-sm"
+                    title="Copy all missing players"
+                    disabled={!buildAllMissingMentions(clans)}
+                  >
+                    {copiedMissing ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                    <span className="hidden sm:inline">{copiedMissing ? 'Copied' : 'Copy Missing'}</span>
+                  </button>
+
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Error / Warning */}
+          {(error || warning) && (
+            <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pt-4">
+              {error && (
+                <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200">
+                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm">{error}</p>
+                  <button
+                    onClick={() => setError(null)}
+                    className="ml-auto text-rose-300/60 hover:text-white transition"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+              {warning && !error && (
+                <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200">
+                  <Info className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm">{warning}</p>
+                  <button
+                    onClick={() => setWarning(null)}
+                    className="ml-auto text-amber-300/60 hover:text-white transition"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               )}
             </div>
+          )}
 
-            <div className="flex items-center gap-2">
-              {/* Column toggle */}
-              <div className="relative">
-                <button
-                  onClick={() => setShowColumnMenu((v) => !v)}
-                  className="astral-btn-ghost text-sm"
-                >
-                  {showColumnMenu ? (
-                    <EyeOff className="w-4 h-4" />
-                  ) : (
-                    <Eye className="w-4 h-4" />
-                  )}
-                  <span className="hidden sm:inline">Columns</span>
-                  {hiddenCount > 0 && (
-                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-gold-500/20 text-gold-300 text-xs font-bold">
-                      {hiddenCount} hidden
-                    </span>
-                  )}
-                  <ChevronDown className="w-3.5 h-3.5" />
-                </button>
-
-                {showColumnMenu && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-20"
-                      onClick={() => setShowColumnMenu(false)}
-                    />
-                    <div className="absolute right-0 mt-2 w-56 bg-space-900/95 border border-astral-700/50 rounded-2xl p-2 z-30 shadow-2xl shadow-space-950">
-                      <p className="px-3 py-2 text-xs text-astral-300/60 font-medium uppercase tracking-wide">
-                        Toggle Columns
-                      </p>
-                      {columns.map((col) => (
-                        <button
-                          key={col.key}
-                          onClick={() => toggleColumn(col.key)}
-                          className="flex items-center justify-between w-full px-3 py-2 rounded-lg hover:bg-astral-700/20 transition text-sm"
-                        >
-                          <span className={col.visible ? 'text-astral-100' : 'text-astral-300/40'}>
-                            {col.label}
-                          </span>
-                          {col.visible ? (
-                            <Eye className="w-4 h-4 text-gold-400" />
-                          ) : (
-                            <EyeOff className="w-4 h-4 text-astral-300/40" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
+          {/* Stats bar */}
+          <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pt-6">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2 text-sm">
+                <div className="w-2 h-2 rounded-full bg-gold-400 animate-twinkle" />
+                <span className="text-astral-200">
+                  <span className="font-bold text-white">{clans.length}</span> clans
+                </span>
               </div>
-
-              <button
-                onClick={() => void copyAllMissing()}
-                className="astral-btn-ghost text-sm"
-                title="Copy all missing players"
-                disabled={!buildAllMissingMentions(clans)}
-              >
-                {copiedMissing ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                <span className="hidden sm:inline">{copiedMissing ? 'Copied' : 'Copy Missing'}</span>
-              </button>
-
+              {sortState && (
+                <div className="flex items-center gap-2 text-sm">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                  <span className="text-astral-200">
+                    Sorted by{' '}
+                    <span className="text-gold-300 font-medium">
+                      {columns.find((c) => c.key === sortState.column)?.label}
+                    </span>{' '}
+                    ({sortState.direction})
+                  </span>
+                  <button
+                    onClick={() => setSortState(null)}
+                    className="text-astral-300/50 hover:text-white transition"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
             </div>
+            {lastUpdated && (
+              <p className="mt-2 text-xs text-astral-300/40">
+                Spreadsheet updated {lastUpdated.toLocaleTimeString()}
+              </p>
+            )}
           </div>
-        </div>
-      </div>
 
-      {/* Error / Warning */}
-      {(error || warning) && (
-        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pt-4">
-          {error && (
-            <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200">
-              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-              <p className="text-sm">{error}</p>
-              <button
-                onClick={() => setError(null)}
-                className="ml-auto text-rose-300/60 hover:text-white transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-          {warning && !error && (
-            <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200">
-              <Info className="w-5 h-5 flex-shrink-0 mt-0.5" />
-              <p className="text-sm">{warning}</p>
-              <button
-                onClick={() => setWarning(null)}
-                className="ml-auto text-amber-300/60 hover:text-white transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-        </div>
+          {/* Clan tables */}
+          <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-8 pb-16">
+            {[...clans]
+              .sort((a, b) => {
+                const aSpun = spunClans.has(a.clanTag || a.clanName);
+                const bSpun = spunClans.has(b.clanTag || b.clanName);
+                return Number(aSpun) - Number(bSpun);
+              })
+              .map((clan) => {
+                const clanKey = clan.clanTag || clan.clanName;
+                return (
+                  <ClanTable
+                    key={clanKey}
+                    clan={clan}
+                    columns={columns}
+                    onSort={handleSort}
+                    sortState={sortState}
+                    searchQuery={searchQuery}
+                    hidden={hiddenClans.has(clanKey)}
+                    onToggleHide={() => toggleClanHidden(clanKey)}
+                    spun={spunClans.has(clanKey)}
+                    onToggleSpun={() => toggleClanSpun(clanKey)}
+                  />
+                );
+              })}
+          </main>
+        </>
       )}
-
-      {/* Stats bar */}
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pt-6">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2 text-sm">
-            <div className="w-2 h-2 rounded-full bg-gold-400 animate-twinkle" />
-            <span className="text-astral-200">
-              <span className="font-bold text-white">{clans.length}</span> clans
-            </span>
-          </div>
-          {sortState && (
-            <div className="flex items-center gap-2 text-sm">
-              <div className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span className="text-astral-200">
-                Sorted by{' '}
-                <span className="text-gold-300 font-medium">
-                  {columns.find((c) => c.key === sortState.column)?.label}
-                </span>{' '}
-                ({sortState.direction})
-              </span>
-              <button
-                onClick={() => setSortState(null)}
-                className="text-astral-300/50 hover:text-white transition"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-        </div>
-        {lastUpdated && (
-          <p className="mt-2 text-xs text-astral-300/40">
-            Spreadsheet updated {lastUpdated.toLocaleTimeString()}
-          </p>
-        )}
-      </div>
-
-      {/* Clan tables */}
-      <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-8 pb-16">
-        {[...clans]
-          .sort((a, b) => {
-            const aSpun = spunClans.has(a.clanTag || a.clanName);
-            const bSpun = spunClans.has(b.clanTag || b.clanName);
-            return Number(aSpun) - Number(bSpun);
-          })
-          .map((clan) => {
-            const clanKey = clan.clanTag || clan.clanName;
-            return (
-              <ClanTable
-                key={clanKey}
-                clan={clan}
-                columns={columns}
-                onSort={handleSort}
-                sortState={sortState}
-                searchQuery={searchQuery}
-                hidden={hiddenClans.has(clanKey)}
-                onToggleHide={() => toggleClanHidden(clanKey)}
-                spun={spunClans.has(clanKey)}
-                onToggleSpun={() => toggleClanSpun(clanKey)}
-              />
-            );
-          })}
-      </main>
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-astral-700/20 bg-space-900/40 backdrop-blur-sm">
