@@ -65,9 +65,10 @@ interface SidebarProps {
   onNavigate: (page: PageKey | ClanPage) => void;
   onInitialNavigate: (page: PageKey | ClanPage) => void;
   onClose: () => void;
+  onReady?: () => void;
 }
 
-export default function Sidebar({ open, activePage, onNavigate, onInitialNavigate, onClose }: SidebarProps) {
+export default function Sidebar({ open, activePage, onNavigate, onInitialNavigate, onClose, onReady }: SidebarProps) {
   const [trackedClans, setTrackedClans] = useState<TrackedClan[]>([]);
   const [loading, setLoading] = useState(true);
   const [clansError, setClansError] = useState<string | null>(null);
@@ -162,6 +163,7 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
         }
       } finally {
         if (active) setLoading(false);
+        if (onReady) onReady();
       }
     };
     loadClans();
