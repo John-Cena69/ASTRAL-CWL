@@ -495,7 +495,7 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
           .in('player_tag', tags);
         if (!linkedError && linked) {
           for (const item of linked) {
-            discordIdMap[item.player_tag] = item.discord_id ?? '';
+            discordIdMap[item.player_tag] = String(item.discord_id ?? '');
           }
         }
       } catch {
@@ -752,7 +752,7 @@ async function handleAddClanPlayer(req: { method?: string; url: string; headers:
         .eq('player_tag', playerTag)
         .maybeSingle();
       if (!linkedError && linked) {
-        discordId = linked.discord_id ?? null;
+        discordId = linked.discord_id != null ? String(linked.discord_id) : null;
       }
     } catch {
       // ignore
