@@ -583,7 +583,7 @@ function ViewRow({ player, index }: { player: ClanRosterPlayer; index: number })
       <td className="px-4 py-3 text-center">
         <div className="flex items-center justify-center gap-1.5">
           <span className="text-astral-200">{player.discord_id || '—'}</span>
-          {player.discord_id && <CopyButton value={`<@${player.discord_id}`} />}
+          {player.discord_id && <CopyButton value={`<@${player.discord_id}>`} />}
         </div>
       </td>
       <td className="px-4 py-3 text-center text-astral-100">{player.town_hall ?? '—'}</td>
@@ -648,7 +648,7 @@ function EditRow({
       <td className="px-4 py-3 text-center">
         <div className="flex items-center justify-center gap-1.5">
           <span className="text-astral-200">{player.discord_id || '—'}</span>
-          {player.discord_id && <CopyButton value={`<@${player.discord_id}`} />}
+          {player.discord_id && <CopyButton value={`<@${player.discord_id}>`} />}
         </div>
       </td>
       <td className="px-4 py-3 text-center text-astral-100">{player.town_hall ?? '—'}</td>
