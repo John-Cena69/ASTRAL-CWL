@@ -489,7 +489,7 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
                             <span className="text-astral-200 cursor-pointer hover:text-gold-300">
                               {discordId}
                             </span>
-                            {discordId && <CopyButton value={`<@${discordId}`} />}
+                            {discordId && <CopyButton value={`<@${discordId}>`} />}
                           </>
                         )}
                       </div>
