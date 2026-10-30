@@ -145,7 +145,7 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
       const issuedBy = removeDiscriminator(
         profileMetadata.user_name || discordData.username || profileMetadata.name || 'Unknown'
       );
-      const response = await fetch('/api/strikes/resolve', {
+      const response = await fetch(`/api/strikes?action=resolve`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
