@@ -62,6 +62,7 @@ export default function App() {
   const [copiedMissing, setCopiedMissing] = useState(false);
   const [activePage, setActivePage] = useState<ActivePage>('roster');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -183,6 +184,7 @@ export default function App() {
         const result = await fetchClansFromSheet(DEFAULT_SHEET_URL, '', '');
         setClans(result.clans);
         setLastUpdated(new Date());
+        if (initialLoading) setInitialLoading(false);
         if (result.clans.length === 0) {
           setError('No clan data found in the spreadsheet. Check its headers and sharing settings.');
         }
@@ -251,8 +253,20 @@ export default function App() {
     });
   };
 
-  if (authLoading) {
-    return <div className="min-h-screen bg-space-950" aria-label="Checking authorization" />;
+  if (authLoading || (user && initialLoading)) {
+    return (
+      <div className="min-h-screen relative flex items-center justify-center">
+        <Starfield />
+        <div className="text-center">
+          <div className="mx-auto mb-6 relative w-16 h-16">
+            <img src="/astral.png" alt="Astral logo" className="w-16 h-16 rounded-xl object-contain shadow-lg shadow-astral-900/50" />
+            <div className="absolute inset-0 rounded-xl border border-gold-400/20 animate-glow pointer-events-none" />
+          </div>
+          <h1 className="font-display text-2xl font-bold gold-text">Astral Management is loading...</h1>
+          <p className="mt-2 text-sm text-astral-200/70">Please wait while we load your data.</p>
+        </div>
+      </div>
+    );
   }
 
   if (!user) {
