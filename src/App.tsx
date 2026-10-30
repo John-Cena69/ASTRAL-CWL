@@ -336,7 +336,7 @@ export default function App() {
 
       {/* Loading overlay — shows until both sheet data and sidebar data are loaded */}
       {initialLoading && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-space-950/90">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-space-950">
           <div className="text-center">
             <div className="mx-auto mb-6 relative w-16 h-16">
               <img src="/astral.png" alt="Astral logo" className="w-16 h-16 rounded-xl object-contain shadow-lg shadow-astral-900/50" />
