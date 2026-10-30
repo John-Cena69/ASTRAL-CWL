@@ -187,13 +187,13 @@ export default function App() {
         setClans(result.clans);
         setLastUpdated(new Date());
         setSheetLoaded(true);
-        if (sheetLoaded && sidebarReady) setInitialLoading(false);
         if (result.clans.length === 0) {
           setError('No clan data found in the spreadsheet. Check its headers and sharing settings.');
         }
         if (result.warning) setWarning(result.warning);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch the spreadsheet.');
+        setSheetLoaded(true);
       }
     };
 
@@ -208,6 +208,8 @@ export default function App() {
       setInitialLoading(false);
     }
   }, [sheetLoaded, sidebarReady, initialLoading]);
+
+  const handleSidebarReady = useCallback(() => setSidebarReady(true), []);
 
   const handleSort = useCallback(
     (column: ColumnKey) => {
