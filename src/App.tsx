@@ -262,7 +262,8 @@ export default function App() {
     });
   };
 
-  if (authLoading || (user && initialLoading)) {
+  // Show loading screen while auth is in progress
+  if (authLoading) {
     return (
       <div className="min-h-screen relative flex items-center justify-center">
         <Starfield />
@@ -278,6 +279,7 @@ export default function App() {
     );
   }
 
+  // Show login page if not authenticated
   if (!user) {
     return (
       <div className="min-h-screen relative flex items-center justify-center px-4">
@@ -313,6 +315,8 @@ export default function App() {
     );
   }
 
+  // Main app - Sidebar renders immediately so it can load data in background
+  // Loading overlay shows until both sheet data and sidebar data are loaded
   return (
     <div className="min-h-screen relative">
       <Starfield />
@@ -327,6 +331,20 @@ export default function App() {
         onClose={() => setSidebarOpen(false)}
         onReady={() => setSidebarReady(true)}
       />
+
+      {/* Loading overlay — shows until both sheet data and sidebar data are loaded */}
+      {initialLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-space-950/90">
+          <div className="text-center">
+            <div className="mx-auto mb-6 relative w-16 h-16">
+              <img src="/astral.png" alt="Astral logo" className="w-16 h-16 rounded-xl object-contain shadow-lg shadow-astral-900/50" />
+              <div className="absolute inset-0 rounded-xl border border-gold-400/20 animate-glow pointer-events-none" />
+            </div>
+            <h1 className="font-display text-2xl font-bold gold-text">Astral Management is loading...</h1>
+            <p className="mt-2 text-sm text-astral-200/70">Please wait while we load your data.</p>
+          </div>
+        </div>
+      )}
 
       <header className="sticky top-0 z-20 border-b border-astral-700/20 bg-space-900/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5">
@@ -425,7 +443,7 @@ export default function App() {
             : activePage.page === 'strike-manager'
               ? <StrikeManagerPage clanTag={activePage.clanTag} clanName={activePage.clanName} />
               : <ClanHomePage clanTag={activePage.clanTag} clanName={activePage.clanName} />
-        : activePage === 'developer' ? <DeveloperDashboard /> : activePage === 'accounts' ? <AccountsPage /> : activePage === 'wars' ? <WarsPage /> : activePage === 'clans' ? <ClansPage /> : <>
+        : activePage === 'developer' ? <DeveloperDashboard /> : activePage === 'accounts' ? <AccountsPage /> : activePage === 'wars' ? <WarsPage /> : activePage === 'clans' ? <ClansPage /> : null}
 
       {/* Toolbar */}
       <div className="relative z-30 sticky top-0 bg-space-900/80 backdrop-blur-md border-b border-astral-700/20 overflow-visible">
@@ -576,11 +594,11 @@ export default function App() {
             </div>
           )}
         </div>
-          {lastUpdated && (
-            <p className="mt-2 text-xs text-astral-300/40">
-              Spreadsheet updated {lastUpdated.toLocaleTimeString()}
-            </p>
-          )}
+        {lastUpdated && (
+          <p className="mt-2 text-xs text-astral-300/40">
+            Spreadsheet updated {lastUpdated.toLocaleTimeString()}
+          </p>
+        )}
       </div>
 
       {/* Clan tables */}
@@ -592,21 +610,21 @@ export default function App() {
             return Number(aSpun) - Number(bSpun);
           })
           .map((clan) => {
-          const clanKey = clan.clanTag || clan.clanName;
-          return (
-            <ClanTable
-              key={clanKey}
-              clan={clan}
-              columns={columns}
-              onSort={handleSort}
-              sortState={sortState}
-              searchQuery={searchQuery}
-              hidden={hiddenClans.has(clanKey)}
-              onToggleHide={() => toggleClanHidden(clanKey)}
-              spun={spunClans.has(clanKey)}
-              onToggleSpun={() => toggleClanSpun(clanKey)}
-            />
-          );
+            const clanKey = clan.clanTag || clan.clanName;
+            return (
+              <ClanTable
+                key={clanKey}
+                clan={clan}
+                columns={columns}
+                onSort={handleSort}
+                sortState={sortState}
+                searchQuery={searchQuery}
+                hidden={hiddenClans.has(clanKey)}
+                onToggleHide={() => toggleClanHidden(clanKey)}
+                spun={spunClans.has(clanKey)}
+                onToggleSpun={() => toggleClanSpun(clanKey)}
+              />
+            );
           })}
       </main>
 
@@ -629,7 +647,6 @@ export default function App() {
           </svg>
         </button>
       )}
-      </>}
     </div>
   );
 }
