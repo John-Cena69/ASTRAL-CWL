@@ -79,6 +79,7 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
     wars: true,
     clan_management: false,
   });
+  const [accessLoaded, setAccessLoaded] = useState(false);
   const initialNavigationSet = useRef(false);
 
   const isClanPageActive = (page: PageKey | ClanPage): page is ClanPage => {
@@ -162,13 +163,21 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
           // Ignore
         }
       } finally {
-        if (active) setLoading(false);
-        if (onReady) onReady();
+        if (active) {
+          setLoading(false);
+          setAccessLoaded(true);
+        }
       }
     };
     loadClans();
     return () => { active = false; };
   }, [onInitialNavigate]);
+
+  useEffect(() => {
+    if (accessLoaded) {
+      onReady?.();
+    }
+  }, [accessLoaded, onReady]);
 
   const buildClanSections = (): ClanSection[] => {
     return trackedClans.map((clan) => ({
@@ -245,7 +254,7 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
           ))}
 
           {/* Dynamic clan sections */}
-          {!loading && trackedClans.length > 0 && (
+          {accessLoaded && !loading && trackedClans.length > 0 && (
             <>
               <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-widest text-astral-300/40">
                 Clans
@@ -298,7 +307,7 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
         </nav>
 
         {/* Management section */}
-        {globalPageAccess.clan_management && (
+        {accessLoaded && globalPageAccess.clan_management && (
           <div className="px-3 pb-4 border-t border-astral-700/30 mt-auto">
             <button
               onClick={() => onNavigate('developer')}
