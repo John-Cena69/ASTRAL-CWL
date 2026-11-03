@@ -446,6 +446,9 @@ async function handleClanRoster(req: { method?: string; url: string; headers: Re
 }
 
 // POST /api/sync-clan-roster — manual roster sync from CoC API
+// Status/role/name/town hall are validated against the in-game clan roster.
+// Discord IDs are refreshed for EVERY player in the website roster (including
+// players who are not currently in the in-game clan), using the linked_players table.
 async function handleSyncClanRoster(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }): Promise<void> {
   if (req.method !== 'POST') {
     send(res, 405, { ok: false, error: 'Use POST.' });
@@ -462,6 +465,9 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
     send(res, 400, { ok: false, error: 'Invalid clan tag.' });
     return;
   }
+
+  // Normalizes any tag to the "#TAG" uppercase form
+  const normTag = (tag: unknown): string => `#${String(tag ?? '').trim().toUpperCase().replace(/^#+/, '')}`;
 
   try {
     const supabase = adminClient();
@@ -483,38 +489,59 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
     }
 
     const members = clan.memberList ?? [];
-    const tags = members.map((m) => m.tag);
-    const membersByTag = new Map(members.map((member) => [member.tag, member]));
-    const discordIdMap: Record<string, string> = {};
-    if (tags.length > 0) {
-      try {
-        const playerbase = playerbaseAdminClient();
-        const { data: linked, error: linkedError } = await playerbase
-          .from('linked_players')
-          .select('player_tag, discord_id')
-          .in('player_tag', tags);
-        if (!linkedError && linked) {
-          for (const item of linked) {
-            discordIdMap[item.player_tag] = String(item.discord_id ?? '');
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
+    const membersByTag = new Map(members.map((member) => [normTag(member.tag), member]));
 
-    const { data: existing } = await supabase
+    // Website roster (every player we need to check)
+    const { data: existing, error: existingError } = await supabase
       .from('clan_players')
       .select('player_tag, role, join_date')
       .eq('clan_tag', clanTag);
+    if (existingError) throw new Error(existingError.message);
+
+    // Collect EVERY tag from the website roster (plus current in-game members),
+    // in both "#TAG" and "TAG" formats so storage format differences don't cause misses.
+    const lookupTags = new Set<string>();
+    for (const tag of [...(existing ?? []).map((p) => p.player_tag), ...members.map((m) => m.tag)]) {
+      const normalized = normTag(tag);
+      lookupTags.add(normalized);
+      lookupTags.add(normalized.slice(1));
+    }
+
+    // Look up Discord IDs for all of those tags
+    const discordIdMap = new Map<string, string>();
+    let discordLookupOk = false;
+    let discordWarning: string | null = null;
+    try {
+      const playerbase = playerbaseAdminClient();
+      const tagList = [...lookupTags];
+      const CHUNK = 200;
+      for (let i = 0; i < tagList.length; i += CHUNK) {
+        const chunk = tagList.slice(i, i + CHUNK);
+        const { data: linked, error: linkedError } = await playerbase
+          .from('linked_players')
+          .select('player_tag, discord_id')
+          .in('player_tag', chunk);
+        if (linkedError) throw new Error(linkedError.message);
+        for (const item of linked ?? []) {
+          const key = normTag(item.player_tag);
+          const discordId = item.discord_id != null ? String(item.discord_id).trim() : '';
+          if (discordId && !discordIdMap.has(key)) discordIdMap.set(key, discordId);
+        }
+      }
+      discordLookupOk = true;
+    } catch (err) {
+      discordWarning = `Discord ID lookup failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
 
     const now = new Date();
 
     let updated = 0;
     let missing = 0;
     let roleMismatches = 0;
+    let discordLinked = 0;
     for (const player of existing ?? []) {
-      const member = membersByTag.get(player.player_tag);
+      const key = normTag(player.player_tag);
+      const member = membersByTag.get(key);
       const isFiller = normalizeRoleForComparison(player.role ?? '') === 'filler';
       const roleMatches = normalizeRoleForComparison(player.role ?? '') === normalizeRoleForComparison(member?.role ?? '');
       const status = !member
@@ -525,16 +552,22 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
       if (status === 'Missing from Clan') missing += 1;
       if (status === 'Role Mismatch') roleMismatches += 1;
 
+      const discordId = discordIdMap.get(key) ?? null;
+      if (discordId) discordLinked += 1;
+
       const updates = {
         status,
         updated_date: now.toISOString(),
+        // Name / town hall only come from the API for players currently in the clan
         ...(member
           ? {
               player_name: member.name,
-              discord_id: discordIdMap[member.tag] ?? null,
               town_hall: member.townHallLevel ?? null,
             }
           : {}),
+        // Discord ID is refreshed for EVERY roster player, in clan or not.
+        // If the lookup itself failed, leave existing IDs untouched instead of wiping them.
+        ...(discordLookupOk ? { discord_id: discordId } : {}),
       };
       const { error } = await supabase
         .from('clan_players')
@@ -544,7 +577,16 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
       if (error) throw new Error(error.message);
       updated += 1;
     }
-    send(res, 200, { ok: true, updated, missing, role_mismatches: roleMismatches, clan_tag: clanTag, clan_name: clan.name });
+    send(res, 200, {
+      ok: true,
+      updated,
+      missing,
+      role_mismatches: roleMismatches,
+      discord_linked: discordLinked,
+      warning: discordWarning,
+      clan_tag: clanTag,
+      clan_name: clan.name,
+    });
   } catch (error) {
     send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Sync failed.' });
   }
@@ -2124,129 +2166,129 @@ export default async function handler(req: unknown, res: {
     }
 
     const auth = await authorize(r);
-  if (auth.ok === false) {
-    send(res, 401, { ok: false, error: auth.message });
-    return;
-  }
-
-  // Normalize path: strip leading /api/ and trailing slash
-  let path = r.url?.split('?')[0] ?? '';
-  if (path.startsWith('/api/')) path = path.slice(5);
-  if (path.endsWith('/')) path = path.slice(0, -1);
-
-  // Also check query slug (Vercel dynamic route fallback)
-  if (!path || path === '[...slug]') {
-    path = String(r.query?.slug ?? '');
-  }
-
-  const globalPageByPath: Record<string, 'cwl' | 'fillers' | 'wars'> = {
-    'cwl-clans': 'cwl',
-    'sync-fillers': 'fillers',
-    'sync-wars': 'wars',
-  };
-  const globalPage = globalPageByPath[path];
-  if (globalPage && !(auth.ok && auth.role === 'Developer' && !getHeader(r, 'authorization'))) {
-    if (!await canAccessClanPage(r, '*', globalPage)) {
-      send(res, 403, { ok: false, error: 'You do not have access to this page.' });
+    if (auth.ok === false) {
+      send(res, 401, { ok: false, error: auth.message });
       return;
     }
-  }
 
-  // Route dispatch
-  switch (path) {
-    case 'tracked-clans':
-      await handleTrackedClans(r, res, auth);
-      break;
-    case 'access-management':
-      await handleAccessManagement(r, res, auth);
-      break;
-    case 'clan-roster':
-      await handleClanRoster(r, res);
-      break;
-    case 'sync-clan-roster':
-      await handleSyncClanRoster(r, res);
-      break;
-    case 'edit-clan-player':
-      await handleEditClanPlayer(r, res);
-      break;
-    case 'edit-clan-players':
-      await handleEditClanPlayers(r, res);
-      break;
-    case 'add-clan-player':
-      await handleAddClanPlayer(r, res);
-      break;
-    case 'delete-clan-player':
-      await handleDeleteClanPlayer(r, res);
-      break;
-    case 'war-weights':
-      await handleWarWeights(r, res);
-      break;
-    case 'sync-war-weights':
-      await handleSyncWarWeights(r, res);
-      break;
-    case 'edit-war-weight':
-      await handleEditWarWeight(r, res);
-      break;
-    case 'edit-war-weights':
-      await handleEditWarWeights(r, res);
-      break;
-    case 'sync':
-      await handleSync(r, res);
-      break;
-    case 'sync-settings':
-      await handleSyncSettings(r, res, auth);
-      break;
-    case 'sync-fillers':
-      await handleSync(r, res);
-      break;
-    case 'sync-wars':
-      await handleSync(r, res);
-      break;
-    case 'cwl-clans':
-      await handleCwlClans(r, res, auth);
-      break;
-    case 'strike-config':
-      if (getQuery(r).type === 'global') {
-        await handleStrikeConfigGlobal(r, res, auth);
-      } else {
-        await handleStrikeConfigClan(r, res, auth);
+    // Normalize path: strip leading /api/ and trailing slash
+    let path = r.url?.split('?')[0] ?? '';
+    if (path.startsWith('/api/')) path = path.slice(5);
+    if (path.endsWith('/')) path = path.slice(0, -1);
+
+    // Also check query slug (Vercel dynamic route fallback)
+    if (!path || path === '[...slug]') {
+      path = String(r.query?.slug ?? '');
+    }
+
+    const globalPageByPath: Record<string, 'cwl' | 'fillers' | 'wars'> = {
+      'cwl-clans': 'cwl',
+      'sync-fillers': 'fillers',
+      'sync-wars': 'wars',
+    };
+    const globalPage = globalPageByPath[path];
+    if (globalPage && !(auth.ok && auth.role === 'Developer' && !getHeader(r, 'authorization'))) {
+      if (!await canAccessClanPage(r, '*', globalPage)) {
+        send(res, 403, { ok: false, error: 'You do not have access to this page.' });
+        return;
       }
-      break;
-    case 'strikes':
-      switch (getQuery(r).action) {
-        case 'pending':
-          await handleStrikesPending(r, res, auth);
-          break;
-        case 'confirm':
-          await handleStrikesConfirm(r, res, auth);
-          break;
-        case 'confirmed':
-          await handleStrikesConfirmed(r, res);
-          break;
-        case 'resolve':
-          await handleStrikesResolve(r, res, auth);
-          break;
-        case 'reduce':
-          await handleStrikesReduce(r, res, auth);
-          break;
-        case 'reset':
-          await handleStrikesReset(r, res, auth);
-          break;
-        case 'confirm_batch':
-          await handleStrikesConfirmBatch(r, res, auth);
-          break;
-        case 'clear_pending':
-          await handleStrikesClearPending(r, res, auth);
-          break;
-        case 'edit_strike':
-          await handleStrikesEdit(r, res, auth);
-          break;
-        default:
-          send(res, 404, { ok: false, error: `Unknown strikes action: ${getQuery(r).action}` });
-      }
-      break;
-    default:
-      send(res, 404, { ok: false, error: `Not found. Path: ${path || '(empty)'}` });
+    }
+
+    // Route dispatch
+    switch (path) {
+      case 'tracked-clans':
+        await handleTrackedClans(r, res, auth);
+        break;
+      case 'access-management':
+        await handleAccessManagement(r, res, auth);
+        break;
+      case 'clan-roster':
+        await handleClanRoster(r, res);
+        break;
+      case 'sync-clan-roster':
+        await handleSyncClanRoster(r, res);
+        break;
+      case 'edit-clan-player':
+        await handleEditClanPlayer(r, res);
+        break;
+      case 'edit-clan-players':
+        await handleEditClanPlayers(r, res);
+        break;
+      case 'add-clan-player':
+        await handleAddClanPlayer(r, res);
+        break;
+      case 'delete-clan-player':
+        await handleDeleteClanPlayer(r, res);
+        break;
+      case 'war-weights':
+        await handleWarWeights(r, res);
+        break;
+      case 'sync-war-weights':
+        await handleSyncWarWeights(r, res);
+        break;
+      case 'edit-war-weight':
+        await handleEditWarWeight(r, res);
+        break;
+      case 'edit-war-weights':
+        await handleEditWarWeights(r, res);
+        break;
+      case 'sync':
+        await handleSync(r, res);
+        break;
+      case 'sync-settings':
+        await handleSyncSettings(r, res, auth);
+        break;
+      case 'sync-fillers':
+        await handleSync(r, res);
+        break;
+      case 'sync-wars':
+        await handleSync(r, res);
+        break;
+      case 'cwl-clans':
+        await handleCwlClans(r, res, auth);
+        break;
+      case 'strike-config':
+        if (getQuery(r).type === 'global') {
+          await handleStrikeConfigGlobal(r, res, auth);
+        } else {
+          await handleStrikeConfigClan(r, res, auth);
+        }
+        break;
+      case 'strikes':
+        switch (getQuery(r).action) {
+          case 'pending':
+            await handleStrikesPending(r, res, auth);
+            break;
+          case 'confirm':
+            await handleStrikesConfirm(r, res, auth);
+            break;
+          case 'confirmed':
+            await handleStrikesConfirmed(r, res);
+            break;
+          case 'resolve':
+            await handleStrikesResolve(r, res, auth);
+            break;
+          case 'reduce':
+            await handleStrikesReduce(r, res, auth);
+            break;
+          case 'reset':
+            await handleStrikesReset(r, res, auth);
+            break;
+          case 'confirm_batch':
+            await handleStrikesConfirmBatch(r, res, auth);
+            break;
+          case 'clear_pending':
+            await handleStrikesClearPending(r, res, auth);
+            break;
+          case 'edit_strike':
+            await handleStrikesEdit(r, res, auth);
+            break;
+          default:
+            send(res, 404, { ok: false, error: `Unknown strikes action: ${getQuery(r).action}` });
+        }
+        break;
+      default:
+        send(res, 404, { ok: false, error: `Not found. Path: ${path || '(empty)'}` });
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
