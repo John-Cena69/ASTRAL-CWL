@@ -263,6 +263,13 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     );
   }, [roster, searchQuery]);
 
+  // Filtered reasons based on what's typed in the Reason box
+  const filteredReasons = useMemo(() => {
+    const q = strikeReason.trim().toLowerCase();
+    if (!q) return availableReasons;
+    return availableReasons.filter((r) => r.text.toLowerCase().includes(q));
+  }, [availableReasons, strikeReason]);
+
   const handleSelectPlayer = (player: ClanRosterPlayer) => {
     setSelectedPlayer(player);
   };
@@ -338,6 +345,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     ]);
 
     setSelectedPlayer(null);
+    setSearchQuery('');
     setStrikeValue('');
     setStrikeReason('');
     setStrikeNote('');
@@ -551,25 +559,36 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
         <div className="p-6 space-y-4">
           <div className="flex flex-col gap-2">
             <label className="text-xs text-astral-300/60 uppercase tracking-wide">Player</label>
-            <div className="flex flex-col gap-1">
+            <div className="relative">
               <input
                 type="text"
                 value={selectedPlayer ? selectedPlayer.player_name : searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSelectedPlayer(null); // typing starts a new search
+                  setSearchQuery(e.target.value);
+                  setShowPlayerDropdown(true);
+                }}
                 onFocus={() => setShowPlayerDropdown(true)}
-                onBlur={() => setTimeout(() => setShowPlayerDropdown(false), 150)}
+                onBlur={() => setShowPlayerDropdown(false)}
                 placeholder="Search player by name, tag, or Discord..."
                 className="astral-input w-full text-sm"
               />
-              {(showPlayerDropdown || searchQuery.trim()) && filteredRoster.length > 0 && (
-                <div className="absolute z-20 mt-1 w-full bg-space-800 border border-astral-700/30 rounded-xl shadow-xl max-h-48 overflow-y-auto">
-                  {filteredRoster.map((p) => (
-                    <div
-                      key={p.player_tag}
-                      onClick={() => { handleSelectPlayer(p); setShowPlayerDropdown(false); }}
-                      className={`px-4 py-2.5 text-sm cursor-pointer hover:bg-astral-700/40 flex items-center justify-between ${selectedPlayer?.player_tag === p.player_tag ? 'bg-gold-500/20 border-l-2 border-gold-400' : ''}`}
-                    >
-                      <div className="flex items-center gap-2 w-full">
+              {showPlayerDropdown && (
+                <div className="absolute left-0 right-0 top-full z-20 mt-1 bg-space-800 border border-astral-700/30 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                  {filteredRoster.length === 0 ? (
+                    <div className="px-4 py-2.5 text-xs text-astral-300/40 italic">No matching players</div>
+                  ) : (
+                    filteredRoster.map((p) => (
+                      <div
+                        key={p.player_tag}
+                        onMouseDown={(e) => {
+                          e.preventDefault(); // keep focus so blur doesn't race the click
+                          handleSelectPlayer(p);
+                          setSearchQuery('');
+                          setShowPlayerDropdown(false);
+                        }}
+                        className={`px-4 py-2.5 text-sm cursor-pointer hover:bg-astral-700/40 flex items-center gap-2 ${selectedPlayer?.player_tag === p.player_tag ? 'bg-gold-500/20 border-l-2 border-gold-400' : ''}`}
+                      >
                         {selectedPlayer?.player_tag === p.player_tag && (
                           <Check className="w-3.5 h-3.5 text-gold-400 flex-shrink-0" />
                         )}
@@ -580,12 +599,9 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
-              )}
-              {(showPlayerDropdown || searchQuery.trim()) && filteredRoster.length === 0 && (
-                <div className="text-xs text-astral-300/40 italic">No matching players</div>
               )}
             </div>
             {selectedPlayer && (
@@ -616,23 +632,24 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                 onChange={(e) => {
                   setShowReasonDropdown(true);
                   setStrikeReason(e.target.value);
-                  // Auto-suggest matching reason
+                  // Auto-suggest matching reason value
                   const typed = e.target.value.toLowerCase();
                   const match = availableReasons.find((r) => r.text.toLowerCase().includes(typed));
                   if (match && typed && match.text.toLowerCase().startsWith(typed)) {
                     setStrikeValue(match.value.toString());
                   }
                 }}
-                onBlur={() => setTimeout(() => setShowReasonDropdown(false), 150)}
+                onBlur={() => setShowReasonDropdown(false)}
                 placeholder="Type or select a strike reason..."
                 className="astral-input w-full text-sm"
               />
-              {showReasonDropdown && availableReasons.length > 0 && (
-                <div className="absolute z-20 mt-1 w-full bg-space-800 border border-astral-700/30 rounded-xl shadow-xl max-h-48 overflow-y-auto">
-                  {availableReasons.map((r) => (
+              {showReasonDropdown && filteredReasons.length > 0 && (
+                <div className="absolute left-0 right-0 top-full z-20 mt-1 bg-space-800 border border-astral-700/30 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                  {filteredReasons.map((r) => (
                     <div
                       key={`${r.source}-${r.text}`}
-                      onClick={() => {
+                      onMouseDown={(e) => {
+                        e.preventDefault();
                         handleReasonSelect(r.text);
                         setShowReasonDropdown(false);
                       }}
