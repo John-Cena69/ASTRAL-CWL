@@ -36,6 +36,21 @@ interface ClanHomePageProps {
   clanName: string;
 }
 
+/**
+ * Days since the player joined, computed live from join_date.
+ * Compares calendar dates so the count flips at midnight, not at the join time of day.
+ */
+function daysSince(joinDate: string | null | undefined): number | null {
+  if (!joinDate) return null;
+  const joined = new Date(joinDate);
+  if (Number.isNaN(joined.getTime())) return null;
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const now = new Date();
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = Date.UTC(joined.getUTCFullYear(), joined.getUTCMonth(), joined.getUTCDate());
+  return Math.max(0, Math.floor((today - start) / MS_PER_DAY));
+}
+
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -605,7 +620,7 @@ function ViewRow({ player, index }: { player: ClanRosterPlayer; index: number })
           {player.status || '—'}
         </span>
       </td>
-      <td className="px-4 py-3 text-center text-astral-100 font-mono">{player.days_in_clan ?? '—'}</td>
+      <td className="px-4 py-3 text-center text-astral-100 font-mono">{daysSince(player.join_date) ?? '—'}</td>
       <td className="px-4 py-3 text-center text-astral-100 font-mono text-gold-300">
         {player.war_weight ?? '—'}
       </td>
