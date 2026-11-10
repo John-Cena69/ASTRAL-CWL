@@ -2039,6 +2039,65 @@ async function handleStrikesClearPending(
   }
 }
 
+// POST /api/strikes?action=delete_pending — delete a single pending strike by id
+async function handleStrikesDeletePending(
+  req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown },
+  res: { status: (code: number) => { json: (body: unknown) => void } },
+  auth: AuthResult
+): Promise<void> {
+  if (auth.ok === false) {
+    send(res, 401, { ok: false, error: auth.message });
+    return;
+  }
+  const body = readJsonBody(req);
+  const id = String(body.id ?? '');
+  if (!id) {
+    send(res, 400, { ok: false, error: 'Pending strike ID is required.' });
+    return;
+  }
+  try {
+    const supabase = adminClient();
+    const { error } = await supabase.from('strikes_pending').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+    send(res, 200, { ok: true });
+  } catch (error) {
+    send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Delete pending failed.' });
+  }
+}
+
+// POST /api/strikes?action=edit_pending — edit a pending strike (value 0 = warning)
+async function handleStrikesEditPending(
+  req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown },
+  res: { status: (code: number) => { json: (body: unknown) => void } },
+  auth: AuthResult
+): Promise<void> {
+  if (auth.ok === false) {
+    send(res, 401, { ok: false, error: auth.message });
+    return;
+  }
+  const body = readJsonBody(req);
+  const id = String(body.id ?? '');
+  const value = body.value;
+  const reason = String(body.reason ?? '').trim();
+  const note = String(body.note ?? '').trim() || null;
+  const issued_date = String(body.issued_date ?? '');
+  if (!id || !reason || value === null || value === undefined || value === '' || isNaN(Number(value)) || !issued_date) {
+    send(res, 400, { ok: false, error: 'Strike ID, value, reason, and date are required.' });
+    return;
+  }
+  try {
+    const supabase = adminClient();
+    const { error } = await supabase
+      .from('strikes_pending')
+      .update({ value: Number(value), reason, note, issued_date })
+      .eq('id', id);
+    if (error) throw new Error(error.message);
+    send(res, 200, { ok: true });
+  } catch (error) {
+    send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Edit pending failed.' });
+  }
+}
+
 // POST /api/strikes?action=edit_strike — edit a confirmed strike
 async function handleStrikesEdit(
   req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown },
@@ -2279,6 +2338,12 @@ export default async function handler(req: unknown, res: {
             break;
           case 'clear_pending':
             await handleStrikesClearPending(r, res, auth);
+            break;
+          case 'delete_pending':
+            await handleStrikesDeletePending(r, res, auth);
+            break;
+          case 'edit_pending':
+            await handleStrikesEditPending(r, res, auth);
             break;
           case 'edit_strike':
             await handleStrikesEdit(r, res, auth);
