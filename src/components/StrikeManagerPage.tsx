@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   Check,
+  Copy,
   LoaderCircle,
+  Pencil,
   Plus,
   RefreshCw,
   Save,
@@ -96,6 +98,16 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingClear, setPendingClear] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editDraft, setEditDraft] = useState<{
+    value: string;
+    reason: string;
+    note: string;
+    date: string;
+    warning: boolean;
+  } | null>(null);
 
   // Form state for adding a strike to batch
   const [searchQuery, setSearchQuery] = useState('');
@@ -336,13 +348,8 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
       return;
     }
 
-    setPendingStrikes((prev) => [
-      ...prev,
-      {
-        id: null,
-        ...newStrike,
-      },
-    ]);
+    // Reload from server so rows have real ids (needed for edit/remove)
+    await loadPending();
 
     setSelectedPlayer(null);
     setSearchQuery('');
@@ -354,8 +361,103 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     setError(null);
   };
 
-  const removeFromBatch = (index: number) => {
+  const authHeaders = async (): Promise<Record<string, string>> => {
+    const { data: session } = await supabase!.auth.getSession();
+    const token = session.session?.access_token;
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  };
+
+  const removeFromBatch = async (index: number) => {
+    if (!supabase) return;
+    const target = pendingStrikes[index];
+    if (!target) return;
+    if (target.id) {
+      try {
+        const response = await fetch('/api/strikes?action=delete_pending', {
+          method: 'POST',
+          headers: await authHeaders(),
+          body: JSON.stringify({ id: target.id }),
+        });
+        const body = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        if (!response.ok || !body.ok) throw new Error(body.error || 'Failed to remove pending strike.');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to remove pending strike.');
+        return;
+      }
+    }
     setPendingStrikes((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const copyMention = async (discordId: string) => {
+    try {
+      await navigator.clipboard.writeText(`<@${discordId}>`);
+      setCopiedId(discordId);
+      setTimeout(() => setCopiedId((cur) => (cur === discordId ? null : cur)), 1500);
+    } catch {
+      setError('Could not copy to clipboard.');
+    }
+  };
+
+  const startEdit = (s: PendingStrike) => {
+    if (!s.id) return;
+    setEditingId(s.id);
+    setEditDraft({
+      value: String(s.value),
+      reason: s.reason,
+      note: s.note,
+      date: formatDateInput(s.issued_date),
+      warning: s.value === 0,
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!supabase || !editingId || !editDraft) return;
+    const val = editDraft.warning ? 0 : parseFloat(editDraft.value);
+    if (isNaN(val)) {
+      setError('Enter a valid strike value.');
+      return;
+    }
+    if (!editDraft.reason.trim()) {
+      setError('Enter a strike reason.');
+      return;
+    }
+    if (!editDraft.date) {
+      setError('Select an issued date.');
+      return;
+    }
+    setSavingEdit(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/strikes?action=edit_pending', {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({
+          id: editingId,
+          value: val,
+          reason: editDraft.reason.trim(),
+          note: editDraft.note.trim(),
+          issued_date: editDraft.date,
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!response.ok || !body.ok) throw new Error(body.error || 'Failed to save pending strike.');
+      setPendingStrikes((prev) =>
+        prev.map((p) =>
+          p.id === editingId
+            ? { ...p, value: val, reason: editDraft.reason.trim(), note: editDraft.note.trim(), issued_date: editDraft.date }
+            : p
+        )
+      );
+      setEditingId(null);
+      setEditDraft(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save pending strike.');
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const handleConfirmBatch = async () => {
@@ -783,32 +885,128 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
               <tbody>
                 {pendingStrikes.map((s, idx) => (
                   <tr
-                    key={`${s.player_tag}-${idx}`}
+                    key={s.id ?? `${s.player_tag}-${idx}`}
                     className="border-t border-astral-700/15 hover:bg-astral-700/10"
                   >
                     <td className="px-4 py-3">
                       <div className="text-astral-100 font-medium">{s.player_name}</div>
                       <div className="text-xs text-astral-300/50 font-mono">{s.player_tag}</div>
                       {s.discord_id && (
-                        <div className="text-xs text-astral-300/40">{s.discord_id}</div>
+                        <div className="flex items-center gap-1 text-xs text-astral-300/40">
+                          <span>{s.discord_id}</span>
+                          <button
+                            type="button"
+                            onClick={() => void copyMention(s.discord_id!)}
+                            className="p-1 text-astral-300/60 hover:text-gold-200 hover:bg-white/10 rounded"
+                            title={`Copy <@${s.discord_id}>`}
+                          >
+                            {copiedId === s.discord_id ? (
+                              <Check className="w-3 h-3 text-emerald-300" />
+                            ) : (
+                              <Copy className="w-3 h-3" />
+                            )}
+                          </button>
+                        </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-astral-100 font-medium">
-                      <span className={`font-mono ${valueColor(s.value)}`}>{s.value}</span>
-                    </td>
-                    <td className="px-4 py-3 text-astral-200">{s.reason}</td>
-                    <td className="px-4 py-3 text-astral-300/60">{s.note || '—'}</td>
-                    <td className="px-4 py-3 text-astral-100 font-mono text-xs">{formatDate(s.issued_date)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => removeFromBatch(idx)}
-                        className="p-1.5 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded"
-                        title="Remove from batch"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
+                    {editingId && editingId === s.id && editDraft ? (
+                      <>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={editDraft.warning ? '0' : editDraft.value}
+                            disabled={editDraft.warning}
+                            onChange={(e) => setEditDraft({ ...editDraft, value: e.target.value })}
+                            className="astral-input w-20 text-sm"
+                          />
+                          <label className="mt-1 flex items-center gap-1 text-xs text-astral-300/60 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={editDraft.warning}
+                              onChange={(e) => setEditDraft({ ...editDraft, warning: e.target.checked })}
+                              className="h-3.5 w-3.5 accent-gold-400"
+                            />
+                            Warning
+                          </label>
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="text"
+                            value={editDraft.reason}
+                            onChange={(e) => setEditDraft({ ...editDraft, reason: e.target.value })}
+                            className="astral-input w-full text-sm"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="text"
+                            value={editDraft.note}
+                            onChange={(e) => setEditDraft({ ...editDraft, note: e.target.value })}
+                            className="astral-input w-full text-sm"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="date"
+                            value={editDraft.date}
+                            onChange={(e) => setEditDraft({ ...editDraft, date: e.target.value })}
+                            className="astral-input text-sm"
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={saveEdit}
+                            disabled={savingEdit}
+                            className="p-1.5 text-emerald-300/80 hover:text-emerald-200 hover:bg-emerald-500/10 rounded"
+                            title="Save"
+                          >
+                            {savingEdit ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingId(null);
+                              setEditDraft(null);
+                            }}
+                            className="p-1.5 text-astral-300/70 hover:text-astral-100 hover:bg-white/10 rounded"
+                            title="Cancel"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="px-4 py-3 text-astral-100 font-medium">
+                          <span className={`font-mono ${valueColor(s.value)}`}>{s.value}</span>
+                          {s.value === 0 && <span className="ml-2 text-xs text-amber-300">Warning</span>}
+                        </td>
+                        <td className="px-4 py-3 text-astral-200">{s.reason}</td>
+                        <td className="px-4 py-3 text-astral-300/60">{s.note || '—'}</td>
+                        <td className="px-4 py-3 text-astral-100 font-mono text-xs">{formatDate(s.issued_date)}</td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => startEdit(s)}
+                            disabled={!s.id}
+                            className="p-1.5 text-gold-300/80 hover:text-gold-200 hover:bg-gold-500/10 rounded"
+                            title="Edit"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeFromBatch(idx)}
+                            className="p-1.5 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded"
+                            title="Remove from batch"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>
