@@ -1415,7 +1415,9 @@ async function handleCwlClans(req: { method?: string; url: string; headers: Reco
 
   try {
     const supabase = adminClient();
-    const tag = await resolveClanTag(supabase, rawTag);
+    // cwl_clans is standalone: normalize the tag only, never touch family_clans
+    const cleaned = rawTag.trim().toUpperCase().replace(/^#+/, '');
+    const tag = `#${cleaned}`;
     if (method === 'DELETE') {
       const { error } = await supabase.from('cwl_clans').delete().eq('clan_tag', tag);
       if (error) throw new Error(error.message);
