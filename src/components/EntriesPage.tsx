@@ -1,9 +1,94 @@
-import { useEffect, useState } from 'react';
-import { AlertCircle, Check, ListChecks, LoaderCircle, Pencil, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { AlertCircle, Check, ChevronDown, ListChecks, LoaderCircle, Pencil, RefreshCw, Search, Shield, Trash2, X } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
+
+interface CwlClanOption {
+  clan_tag: string;
+  clan_name: string | null;
+  badge_url: string | null;
+}
+
+// Rendered on document.body so the page footer can never overlap a dialog.
+function Modal({ children }: { children: ReactNode }) {
+  return createPortal(children, document.body);
+}
+
+function ClanSelect({ value, options, onChange }: { value: string; options: CwlClanOption[]; onChange: (tag: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.clan_tag === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  const badge = (option?: CwlClanOption) =>
+    option?.badge_url
+      ? <img src={option.badge_url} alt="" className="w-6 h-6 object-contain shrink-0" />
+      : <Shield className="w-5 h-5 text-astral-300/50 shrink-0" />;
+
+  return (
+    <div ref={ref} className="relative mt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="astral-input w-full flex items-center gap-2.5 text-left"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        {badge(selected)}
+        <span className={`flex-1 truncate ${selected ? 'text-white' : 'text-astral-300/50'}`}>
+          {selected ? (selected.clan_name ?? selected.clan_tag) : 'No CWL clan'}
+        </span>
+        <ChevronDown className={`w-4 h-4 text-astral-300/60 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <ul role="listbox" className="absolute z-10 mt-2 w-full max-h-60 overflow-y-auto rounded-xl border border-astral-700/40 bg-space-800 p-1.5 shadow-2xl shadow-space-950">
+          <li>
+            <button
+              type="button"
+              role="option"
+              aria-selected={!value}
+              onClick={() => { onChange(''); setOpen(false); }}
+              className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-astral-300/70 hover:bg-white/5"
+            >
+              <X className="w-5 h-5 shrink-0" /> <span className="flex-1 text-left">No CWL clan</span>
+              {!value && <Check className="w-4 h-4 text-gold-300" />}
+            </button>
+          </li>
+          {options.map((option) => (
+            <li key={option.clan_tag}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={option.clan_tag === value}
+                onClick={() => { onChange(option.clan_tag); setOpen(false); }}
+                className={`w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm hover:bg-white/5 ${option.clan_tag === value ? 'bg-white/5 text-white' : 'text-astral-100'}`}
+              >
+                {badge(option)}
+                <span className="flex-1 min-w-0 text-left">
+                  <span className="block truncate font-medium">{option.clan_name ?? option.clan_tag}</span>
+                  <span className="block font-mono text-xs text-gold-400/70">{option.clan_tag}</span>
+                </span>
+                {option.clan_tag === value && <Check className="w-4 h-4 text-gold-300" />}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 interface CwlEntry {
   id: string;
+  cwl_clan_tag: string | null;
   player_name: string;
   player_tag: string;
   discord_id: string | null;
@@ -34,6 +119,19 @@ export default function EntriesPage() {
   const [pendingDelete, setPendingDelete] = useState<CwlEntry | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [search, setSearch] = useState('');
+  const [clanOptions, setClanOptions] = useState<CwlClanOption[]>([]);
+  const [clanInput, setClanInput] = useState('');
+
+  useEffect(() => {
+    if (!supabase) return;
+    void supabase
+      .from('cwl_clans')
+      .select('clan_tag, clan_name, badge_url')
+      .then(({ data }) => {
+        const rows = (data ?? []) as CwlClanOption[];
+        setClanOptions(rows.sort((a, b) => (a.clan_name ?? '').localeCompare(b.clan_name ?? '')));
+      });
+  }, []);
   const [clanFilter, setClanFilter] = useState('');
 
   const cwlClanOptions = [...new Set(entries.map((entry) => entry.cwl_clan_name).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b));
@@ -87,6 +185,7 @@ export default function EntriesPage() {
     setEditing(entry);
     setWeightInput(entry.war_weight != null ? String(entry.war_weight) : '');
     setNotesInput(entry.notes ?? '');
+    setClanInput(entry.cwl_clan_tag ?? '');
     setError(null);
     setMessage(null);
   };
@@ -96,7 +195,7 @@ export default function EntriesPage() {
     setSaving(true);
     setError(null);
     try {
-      const payload: Record<string, unknown> = { id: editing.id, notes: notesInput };
+      const payload: Record<string, unknown> = { id: editing.id, notes: notesInput, cwl_clan_tag: clanInput };
       if (!editing.war_weight_from_clan_players) {
         payload.war_weight = weightInput.trim() === '' ? null : Number(weightInput);
       }
@@ -238,6 +337,7 @@ export default function EntriesPage() {
       )}
 
       {editing && (
+        <Modal>
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Edit entry">
           <div className="absolute inset-0 bg-space-950/70 backdrop-blur-sm" onClick={() => setEditing(null)} aria-hidden="true" />
           <div className="relative bg-space-800 border border-astral-700/30 rounded-2xl p-6 w-full max-w-md shadow-2xl shadow-space-950">
@@ -258,6 +358,10 @@ export default function EntriesPage() {
             {editing.war_weight_from_clan_players && (
               <p className="mt-1 text-xs text-astral-300/50">Weight comes from the clan roster and is updated there.</p>
             )}
+            <div className="mt-4 text-sm text-astral-200">
+              CWL Clan
+              <ClanSelect value={clanInput} options={clanOptions} onChange={setClanInput} />
+            </div>
             <label className="mt-4 block text-sm text-astral-200">Notes
               <textarea
                 rows={3}
@@ -274,9 +378,11 @@ export default function EntriesPage() {
             </div>
           </div>
         </div>
+        </Modal>
       )}
 
       {pendingDelete && (
+        <Modal>
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Confirm removal">
           <div className="absolute inset-0 bg-space-950/70 backdrop-blur-sm" onClick={() => setPendingDelete(null)} aria-hidden="true" />
           <div className="relative bg-space-800 border border-astral-700/30 rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl shadow-space-950">
@@ -301,6 +407,7 @@ export default function EntriesPage() {
             </div>
           </div>
         </div>
+        </Modal>
       )}
     </main>
   );
