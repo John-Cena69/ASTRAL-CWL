@@ -66,6 +66,7 @@ function byAssignment(a: Entry, b: Entry): number {
 
 type Confirm =
   | { kind: 'remove_clan'; clan: CwlClan; count: number }
+  | { kind: 'update_clans'; adds: string[]; removes: string[]; affected: number }
   | { kind: 'autofill'; clan: CwlClan; players: Entry[] }
   | { kind: 'new_season' }
   | { kind: 'close_season' }
@@ -204,6 +205,30 @@ export default function CwlRosterPage() {
   const seasonTags = useMemo(() => new Set((data?.season_clans ?? []).map((sc) => sc.clan_tag)), [data]);
   const unassigned = useMemo(() => (data?.entries ?? []).filter((entry) => !entry.cwl_clan_tag), [data]);
 
+  // Draft clan selection: null means "same as what is saved".
+  const [draft, setDraft] = useState<Set<string> | null>(null);
+  const effectiveDraft = draft ?? seasonTags;
+  const draftAdds = (data?.clans ?? []).map((c) => c.clan_tag).filter((tag) => effectiveDraft.has(tag) && !seasonTags.has(tag));
+  const draftRemoves = [...seasonTags].filter((tag) => !effectiveDraft.has(tag));
+  const toggleDraft = (tag: string) => {
+    setDraft((current) => {
+      const next = new Set(current ?? seasonTags);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
+      return next;
+    });
+  };
+  const applyClanChanges = async () => {
+    setError(null);
+    setMessage(null);
+    if (draftRemoves.length > 0) {
+      const affected = (data?.entries ?? []).filter((entry) => entry.cwl_clan_tag && draftRemoves.includes(entry.cwl_clan_tag)).length;
+      setConfirm({ kind: 'update_clans', adds: draftAdds, removes: draftRemoves, affected });
+      return;
+    }
+    if (await act({ action: 'update_clans', add: draftAdds, remove: [] }, `${draftAdds.length} clan(s) added to the season.`)) setDraft(null);
+  };
+
   const openSeasonDialog = (kind: 'new_season' | 'close_season' | 'rename_season') => {
     setNameInput(kind === 'rename_season' ? data?.season?.name ?? '' : '');
     setClearAssignments(true);
@@ -215,7 +240,10 @@ export default function CwlRosterPage() {
   const runConfirm = async () => {
     if (!confirm) return;
     let ok = false;
-    if (confirm.kind === 'remove_clan') {
+    if (confirm.kind === 'update_clans') {
+      ok = await act({ action: 'update_clans', add: confirm.adds, remove: confirm.removes }, 'Season clans updated.');
+      if (ok) setDraft(null);
+    } else if (confirm.kind === 'remove_clan') {
       ok = await act({ action: 'remove_clan', clan_tag: confirm.clan.clan_tag }, `${confirm.clan.clan_name ?? confirm.clan.clan_tag} removed from this season.`);
     } else if (confirm.kind === 'autofill') {
       ok = await act(
@@ -229,7 +257,10 @@ export default function CwlRosterPage() {
     } else {
       ok = await act({ action: 'rename_season', name: nameInput }, 'Season renamed.');
     }
-    if (ok) setConfirm(null);
+    if (ok) {
+      setConfirm(null);
+      if (confirm.kind === 'new_season' || confirm.kind === 'close_season') setDraft(null);
+    }
   };
 
   const season = data?.season ?? null;
@@ -287,38 +318,79 @@ export default function CwlRosterPage() {
         <>
           <section className="astral-card p-5">
             <h3 className="font-semibold text-white">Clans for this season</h3>
-            <p className="mt-1 text-sm text-astral-300/60">Click a clan to add it to {season.name}; click a selected clan to remove it.</p>
+            <p className="mt-1 text-sm text-astral-300/60">Tick the clans you want in {season.name}, then apply all changes at once.</p>
             {(data?.clans.length ?? 0) === 0 ? (
               <p className="mt-3 text-sm text-astral-300/50">No CWL clans yet. Add some on the Dashboard.</p>
             ) : (
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {data?.clans.map((clan) => {
-                  const selected = seasonTags.has(clan.clan_tag);
-                  const sc = data.season_clans.find((item) => item.clan_tag === clan.clan_tag);
-                  return (
-                    <button
-                      key={clan.clan_tag}
-                      type="button"
-                      disabled={busy}
-                      onClick={() => {
-                        setError(null);
-                        setMessage(null);
-                        if (!selected) void act({ action: 'add_clan', clan_tag: clan.clan_tag });
-                        else setConfirm({ kind: 'remove_clan', clan, count: data.entries.filter((entry) => entry.cwl_clan_tag === clan.clan_tag).length });
-                      }}
-                      className={`flex items-center gap-3 rounded-xl border p-3 text-left transition disabled:opacity-60 ${selected ? 'border-gold-400/50 bg-gold-500/10' : 'border-astral-700/30 hover:bg-white/5'}`}
-                      title={sc ? `Added by ${sc.added_by ?? 'unknown'} on ${formatDate(sc.added_at)}` : 'Add to season'}
-                    >
-                      {clan.badge_url ? <img src={clan.badge_url} alt="" className="w-10 h-10 object-contain shrink-0" /> : <Shield className="w-8 h-8 text-astral-300/50 shrink-0" />}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium text-white">{clan.clan_name ?? clan.clan_tag}</span>
-                        <span className="block truncate text-xs text-astral-300/60">{clan.cwl_league ?? 'Unranked'}</span>
-                      </span>
-                      {selected && <Check className="w-5 h-5 text-gold-300 shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
+              <>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {data?.clans.map((clan) => {
+                    const selected = effectiveDraft.has(clan.clan_tag);
+                    const saved = seasonTags.has(clan.clan_tag);
+                    const sc = data.season_clans.find((item) => item.clan_tag === clan.clan_tag);
+                    const state = selected && !saved ? 'adding' : !selected && saved ? 'removing' : null;
+                    return (
+                      <button
+                        key={clan.clan_tag}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => toggleDraft(clan.clan_tag)}
+                        className={`flex items-center gap-3 rounded-xl border p-3 text-left transition disabled:opacity-60 ${selected ? 'border-gold-400/50 bg-gold-500/10' : 'border-astral-700/30 hover:bg-white/5'}`}
+                        title={sc ? `Added by ${sc.added_by ?? 'unknown'} on ${formatDate(sc.added_at)}` : 'Select for this season'}
+                      >
+                        <span className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 ${selected ? 'border-gold-400 bg-gold-400/20 text-gold-200' : 'border-astral-300/40'}`}>
+                          {selected && <Check className="w-3.5 h-3.5" />}
+                        </span>
+                        {clan.badge_url ? <img src={clan.badge_url} alt="" className="w-10 h-10 object-contain shrink-0" /> : <Shield className="w-8 h-8 text-astral-300/50 shrink-0" />}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium text-white">{clan.clan_name ?? clan.clan_tag}</span>
+                          <span className="block truncate text-xs text-astral-300/60">{clan.cwl_league ?? 'Unranked'}</span>
+                        </span>
+                        {state && (
+                          <span className={`text-[10px] font-semibold uppercase rounded-full px-2 py-0.5 ${state === 'adding' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>
+                            {state === 'adding' ? 'Adding' : 'Removing'}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={busy || draftAdds.length + draftRemoves.length === 0}
+                    onClick={applyClanChanges}
+                    className="astral-btn-primary disabled:opacity-50"
+                  >
+                    {busy ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    Apply changes{draftAdds.length + draftRemoves.length > 0 ? ` (+${draftAdds.length} / −${draftRemoves.length})` : ''}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || draftAdds.length + draftRemoves.length === 0}
+                    onClick={() => setDraft(null)}
+                    className="astral-btn-ghost disabled:opacity-40"
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setDraft(new Set(data?.clans.map((clan) => clan.clan_tag)))}
+                    className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2 ml-1"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setDraft(new Set())}
+                    className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2"
+                  >
+                    Select none
+                  </button>
+                </div>
+              </>
             )}
           </section>
 
@@ -459,6 +531,16 @@ export default function CwlRosterPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Confirm">
             <div className="absolute inset-0 bg-space-950/70 backdrop-blur-sm" onClick={() => !busy && setConfirm(null)} aria-hidden="true" />
             <div className="relative bg-space-800 border border-astral-700/30 rounded-2xl p-6 w-full max-w-md shadow-2xl shadow-space-950">
+              {confirm.kind === 'update_clans' && (
+                <>
+                  <h3 className="font-display text-lg font-bold text-white">Apply clan changes?</h3>
+                  <p className="mt-2 text-sm text-astral-200/70">
+                    {confirm.adds.length > 0 && <>Adding <span className="font-semibold text-white">{confirm.adds.map((tag) => clanByTag.get(tag)?.clan_name ?? tag).join(', ')}</span>. </>}
+                    Removing <span className="font-semibold text-white">{confirm.removes.map((tag) => clanByTag.get(tag)?.clan_name ?? tag).join(', ')}</span>
+                    {confirm.affected > 0 ? `; ${confirm.affected} assigned player(s) will be unassigned (their CWL entries are kept).` : '.'}
+                  </p>
+                </>
+              )}
               {confirm.kind === 'remove_clan' && (
                 <>
                   <h3 className="font-display text-lg font-bold text-white">Remove clan from season?</h3>
