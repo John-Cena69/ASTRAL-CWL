@@ -1566,6 +1566,61 @@ async function handleCwlRoster(req: { method?: string; url: string; headers: Rec
       return count ?? 0;
     };
 
+    if (action === 'update_clans') {
+      const toTags = (value: unknown): string[] =>
+        [...new Set((Array.isArray(value) ? value : []).map((item) => normTag(item)))];
+      const addTags = toTags(body.add);
+      const removeTags = toTags(body.remove);
+      if (addTags.length === 0 && removeTags.length === 0) return fail(400, 'No changes to apply.');
+      if (addTags.some((t) => removeTags.includes(t))) return fail(400, 'A clan cannot be added and removed at once.');
+
+      const { data: current, error: currentError } = await supabase
+        .from('cwl_season_clans')
+        .select('clan_tag')
+        .eq('season_id', season.id)
+        .is('removed_at', null);
+      if (currentError) throw new Error(currentError.message);
+      const currentTags = new Set((current ?? []).map((row) => row.clan_tag as string));
+      const newAdds = addTags.filter((t) => !currentTags.has(t));
+      const realRemoves = removeTags.filter((t) => currentTags.has(t));
+
+      if (newAdds.length > 0) {
+        const { data: clans, error: clansError } = await supabase
+          .from('cwl_clans')
+          .select('clan_tag, cwl_league')
+          .in('clan_tag', newAdds);
+        if (clansError) throw new Error(clansError.message);
+        if ((clans ?? []).length !== newAdds.length) return fail(400, 'One of the selected clans is not a CWL clan.');
+        const rows = (clans ?? []).map((clan) => {
+          const league = String(clan.cwl_league ?? '').toLowerCase();
+          return {
+            season_id: season.id,
+            clan_tag: clan.clan_tag,
+            roster_size: !league || league.includes('unrank') ? 15 : 30,
+            added_by: actor,
+          };
+        });
+        const { error } = await supabase.from('cwl_season_clans').insert(rows);
+        if (error) throw new Error(error.message);
+      }
+      if (realRemoves.length > 0) {
+        const { error } = await supabase
+          .from('cwl_season_clans')
+          .update({ removed_at: now, removed_by: actor })
+          .eq('season_id', season.id)
+          .in('clan_tag', realRemoves)
+          .is('removed_at', null);
+        if (error) throw new Error(error.message);
+        const { error: unassignError } = await supabase
+          .from('cwl_entries')
+          .update({ cwl_clan_tag: null, cwl_clan_name: null })
+          .in('cwl_clan_tag', realRemoves);
+        if (unassignError) throw new Error(unassignError.message);
+      }
+      send(res, 200, { ok: true, added: newAdds.length, removed: realRemoves.length });
+      return;
+    }
+
     if (action === 'unassign') {
       const entryId = String(body.entry_id ?? '');
       if (!entryId) return fail(400, 'entry_id is required.');
