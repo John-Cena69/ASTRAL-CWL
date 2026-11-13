@@ -1,7 +1,26 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, Check, ChevronDown, ListChecks, LoaderCircle, Pencil, RefreshCw, Search, Shield, Trash2, X } from 'lucide-react';
+import { AlertCircle, ArrowDown, ArrowUp, Check, ChevronDown, ListChecks, LoaderCircle, Pencil, RefreshCw, Search, Shield, Trash2, X } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
+
+type SortKey = 'cwl_clan' | 'home_clan' | 'war_weight';
+type SortDir = 'asc' | 'desc';
+interface SortSpec { key: SortKey; dir: SortDir }
+
+const SORT_LABELS: Record<SortKey, string> = { cwl_clan: 'CWL Clan', home_clan: 'Home Clan', war_weight: 'War Weight' };
+const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = { cwl_clan: 'asc', home_clan: 'asc', war_weight: 'desc' };
+const SORT_DIR_TEXT: Record<SortKey, Record<SortDir, string>> = {
+  cwl_clan: { asc: 'A–Z', desc: 'Z–A' },
+  home_clan: { asc: 'A–Z', desc: 'Z–A' },
+  war_weight: { asc: 'Low–High', desc: 'High–Low' },
+};
+
+function sortValue(entry: CwlEntry, key: SortKey): string | number | null {
+  if (key === 'war_weight') return entry.war_weight;
+  const raw = key === 'cwl_clan' ? entry.cwl_clan_name : entry.home_clan;
+  const trimmed = raw?.trim();
+  return trimmed ? trimmed : null;
+}
 
 interface CwlClanOption {
   clan_tag: string;
@@ -121,6 +140,7 @@ export default function EntriesPage() {
   const [search, setSearch] = useState('');
   const [clanOptions, setClanOptions] = useState<CwlClanOption[]>([]);
   const [clanInput, setClanInput] = useState('');
+  const [sortKeys, setSortKeys] = useState<SortSpec[]>([]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -136,7 +156,7 @@ export default function EntriesPage() {
 
   const cwlClanOptions = [...new Set(entries.map((entry) => entry.cwl_clan_name).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b));
   const query = search.trim().toLowerCase().replace(/^#/, '');
-  const filtered = entries.filter((entry) => {
+  const matched = entries.filter((entry) => {
     if (clanFilter && entry.cwl_clan_name !== clanFilter) return false;
     if (!query) return true;
     return (
@@ -145,6 +165,33 @@ export default function EntriesPage() {
       (entry.discord_id ?? '').includes(query)
     );
   });
+
+  // sortKeys[0] is the primary key; earlier picks act as tie-breakers for later ones.
+  const filtered = [...matched].sort((a, b) => {
+    for (const { key, dir } of sortKeys) {
+      const av = sortValue(a, key);
+      const bv = sortValue(b, key);
+      // Empty values (unassigned / no weight) always go to the bottom, whatever the direction.
+      if (av === null && bv === null) continue;
+      if (av === null) return 1;
+      if (bv === null) return -1;
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv), undefined, { sensitivity: 'base', numeric: true });
+      if (cmp !== 0) return dir === 'asc' ? cmp : -cmp;
+    }
+    return new Date(a.created_date).getTime() - new Date(b.created_date).getTime();
+  });
+
+  const toggleSort = (key: SortKey) => {
+    setSortKeys((current) => {
+      const existing = current.find((item) => item.key === key);
+      if (!existing) return [{ key, dir: SORT_DEFAULT_DIR[key] }, ...current];
+      if (current[0].key !== key) return [existing, ...current.filter((item) => item.key !== key)];
+      return current.map((item) => (item.key === key ? { ...item, dir: item.dir === 'asc' ? 'desc' : 'asc' } : item));
+    });
+  };
+  const removeSort = (key: SortKey) => setSortKeys((current) => current.filter((item) => item.key !== key));
 
   const call = async (method: 'GET' | 'PATCH' | 'DELETE', payload?: Record<string, unknown>) => {
     if (!supabase) throw new Error('Supabase is not configured.');
@@ -257,6 +304,47 @@ export default function EntriesPage() {
           <option value="">All CWL clans</option>
           {cwlClanOptions.map((name) => <option key={name} value={name}>{name}</option>)}
         </select>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs uppercase tracking-wide text-astral-300/60 mr-1">Sort by</span>
+        {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => {
+          const position = sortKeys.findIndex((item) => item.key === key);
+          const spec = position >= 0 ? sortKeys[position] : null;
+          return (
+            <span
+              key={key}
+              className={`inline-flex items-center rounded-full border text-sm transition ${spec ? 'border-gold-400/50 bg-gold-500/10 text-gold-200' : 'border-astral-700/40 text-astral-200 hover:bg-white/5'}`}
+            >
+              <button
+                type="button"
+                onClick={() => toggleSort(key)}
+                className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5"
+                title={spec ? (position === 0 ? 'Click to reverse direction' : 'Click to make this the primary sort') : 'Click to sort'}
+              >
+                {spec && sortKeys.length > 1 && (
+                  <span className="w-4 h-4 rounded-full bg-gold-400/20 text-[10px] font-bold flex items-center justify-center">{position + 1}</span>
+                )}
+                {SORT_LABELS[key]}
+                {spec && (spec.dir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />)}
+                {spec && <span className="text-xs opacity-70">{SORT_DIR_TEXT[key][spec.dir]}</span>}
+              </button>
+              {spec && (
+                <button type="button" onClick={() => removeSort(key)} className="pr-2 pl-0.5 py-1.5 opacity-70 hover:opacity-100" title={`Remove ${SORT_LABELS[key]} sort`} aria-label={`Remove ${SORT_LABELS[key]} sort`}>
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </span>
+          );
+        })}
+        {sortKeys.length > 0 && (
+          <button type="button" onClick={() => setSortKeys([])} className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2 ml-1">Clear sort</button>
+        )}
+        {sortKeys.length > 1 && (
+          <span className="text-xs text-astral-300/50 ml-1">
+            Priority: {sortKeys.map((item) => SORT_LABELS[item.key]).join(' → ')}
+          </span>
+        )}
       </div>
 
       {(error || message) && (
