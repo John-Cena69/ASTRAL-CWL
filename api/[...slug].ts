@@ -1471,6 +1471,27 @@ async function handleCwlEntries(req: { method?: string; url: string; headers: Re
         updates.war_weight_override = weight;
       }
     }
+    if ('cwl_clan_tag' in body) {
+      const rawTag = typeof body.cwl_clan_tag === 'string' ? body.cwl_clan_tag.trim() : '';
+      if (!rawTag) {
+        updates.cwl_clan_tag = null;
+        updates.cwl_clan_name = null;
+      } else {
+        const tag = normTag(rawTag);
+        const { data: clan, error: clanError } = await supabase
+          .from('cwl_clans')
+          .select('clan_tag, clan_name')
+          .eq('clan_tag', tag)
+          .maybeSingle();
+        if (clanError) throw new Error(clanError.message);
+        if (!clan) {
+          send(res, 400, { ok: false, error: 'Unknown CWL clan.' });
+          return;
+        }
+        updates.cwl_clan_tag = clan.clan_tag;
+        updates.cwl_clan_name = clan.clan_name;
+      }
+    }
     if (Object.keys(updates).length === 0) {
       send(res, 400, { ok: false, error: 'Nothing to update.' });
       return;
