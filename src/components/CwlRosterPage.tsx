@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import {
   AlertCircle,
   Check,
+  ChevronDown,
+  ChevronUp,
   History,
   LoaderCircle,
   Pencil,
@@ -16,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
+import { compareClansByLeague } from '@/cwlLeague';
 
 interface Season { id: string; name: string; created_by: string | null; created_at: string; closed_by: string | null; closed_at: string | null }
 interface CwlClan { clan_tag: string; clan_name: string | null; cwl_league: string | null; badge_url: string | null }
@@ -87,9 +90,10 @@ function PlayerPicker({ players, disabled, onPick }: { players: Entry[]; disable
   }, [open]);
 
   const q = query.trim().toLowerCase().replace(/^#/, '');
-  const results = players
-    .filter((player) => !q || player.player_name.toLowerCase().includes(q) || player.player_tag.toLowerCase().replace(/^#/, '').includes(q))
-    .sort(byWeightDesc);
+  const matchesQuery = (player: Entry) =>
+    !q || player.player_name.toLowerCase().includes(q) || player.player_tag.toLowerCase().replace(/^#/, '').includes(q);
+  const unassignedResults = players.filter((player) => !player.cwl_clan_tag && matchesQuery(player)).sort(byWeightDesc);
+  const assignedResults = q ? players.filter((player) => !!player.cwl_clan_tag && matchesQuery(player)).sort(byWeightDesc) : [];
 
   return (
     <div ref={ref} className="relative">
@@ -103,7 +107,7 @@ function PlayerPicker({ players, disabled, onPick }: { players: Entry[]; disable
         <UserPlus className="w-4 h-4" /> Add player
       </button>
       {open && (
-        <div className="absolute right-0 z-20 mt-2 w-80 max-w-[85vw] rounded-xl border border-astral-700/40 bg-space-800 p-2 shadow-2xl shadow-space-950">
+        <div className="absolute right-0 z-30 mt-2 w-80 max-w-[85vw] rounded-xl border border-astral-700/40 bg-space-800 p-2 shadow-2xl shadow-space-950">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-astral-300/50" />
             <input
@@ -114,24 +118,58 @@ function PlayerPicker({ players, disabled, onPick }: { players: Entry[]; disable
               className="astral-input w-full pl-9"
             />
           </div>
-          <ul className="mt-2 max-h-64 overflow-y-auto">
-            {results.length === 0 ? (
+          <ul className="mt-2 max-h-64 overflow-y-auto space-y-0.5">
+            {unassignedResults.length === 0 && assignedResults.length === 0 ? (
               <li className="px-3 py-4 text-center text-sm text-astral-300/50">No unassigned players found.</li>
-            ) : results.map((player) => (
-              <li key={player.id}>
-                <button
-                  type="button"
-                  onClick={() => { onPick(player); setOpen(false); setQuery(''); }}
-                  className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-white/5"
-                >
-                  <span className="flex-1 min-w-0">
-                    <span className="block truncate text-sm font-medium text-white">{player.player_name}</span>
-                    <span className="block font-mono text-xs text-gold-400/70">{player.player_tag}</span>
-                  </span>
-                  <span className="text-xs tabular-nums text-astral-300/70">{player.war_weight != null ? player.war_weight.toLocaleString() : 'no weight'}</span>
-                </button>
-              </li>
-            ))}
+            ) : (
+              <>
+                {unassignedResults.length === 0 && assignedResults.length > 0 && (
+                  <li className="px-3 py-2 text-xs text-amber-300/90 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    All matching players are already assigned.
+                  </li>
+                )}
+                {unassignedResults.map((player) => (
+                  <li key={player.id}>
+                    <button
+                      type="button"
+                      onClick={() => { onPick(player); setOpen(false); setQuery(''); }}
+                      className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-white/5"
+                    >
+                      <span className="flex-1 min-w-0">
+                        <span className="block truncate text-sm font-medium text-white">{player.player_name}</span>
+                        <span className="block font-mono text-xs text-gold-400/70">{player.player_tag}</span>
+                      </span>
+                      <span className="text-xs tabular-nums text-astral-300/70">{player.war_weight != null ? player.war_weight.toLocaleString() : 'no weight'}</span>
+                    </button>
+                  </li>
+                ))}
+                {assignedResults.length > 0 && (
+                  <>
+                    <li className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-amber-300/80 border-t border-astral-700/30 mt-1">
+                      Already assigned
+                    </li>
+                    {assignedResults.map((player) => (
+                      <li key={player.id}>
+                        <div
+                          className="w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-left bg-amber-500/5 border border-amber-500/20 opacity-80 cursor-not-allowed"
+                          title={`Already assigned to ${player.cwl_clan_name ?? player.cwl_clan_tag}`}
+                        >
+                          <AlertCircle className="w-4 h-4 text-amber-300 shrink-0" />
+                          <span className="flex-1 min-w-0">
+                            <span className="block truncate text-sm font-medium text-amber-100">{player.player_name}</span>
+                            <span className="block truncate font-mono text-xs text-amber-300/70">
+                              {player.player_tag} · in {player.cwl_clan_name ?? player.cwl_clan_tag}
+                            </span>
+                          </span>
+                          <span className="text-xs tabular-nums text-amber-200/60 shrink-0">{player.war_weight != null ? player.war_weight.toLocaleString() : 'no weight'}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </>
+                )}
+              </>
+            )}
           </ul>
         </div>
       )}
@@ -148,6 +186,8 @@ export default function CwlRosterPage() {
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [nameInput, setNameInput] = useState('');
   const [clearAssignments, setClearAssignments] = useState(true);
+  const [clansCollapsed, setClansCollapsed] = useState(false);
+  const [collapsedRosters, setCollapsedRosters] = useState<Set<string>>(() => new Set());
 
   const request = async (method: 'GET' | 'POST', payload?: Record<string, unknown>) => {
     if (!supabase) throw new Error('Supabase is not configured.');
@@ -202,8 +242,25 @@ export default function CwlRosterPage() {
   };
 
   const clanByTag = useMemo(() => new Map((data?.clans ?? []).map((clan) => [clan.clan_tag, clan])), [data]);
+  const sortedClans = useMemo(() => [...(data?.clans ?? [])].sort(compareClansByLeague), [data]);
+  const sortedSeasonClans = useMemo(() => {
+    return [...(data?.season_clans ?? [])].sort((a, b) => {
+      const ca = clanByTag.get(a.clan_tag) ?? { cwl_league: null, clan_name: a.clan_tag };
+      const cb = clanByTag.get(b.clan_tag) ?? { cwl_league: null, clan_name: b.clan_tag };
+      return compareClansByLeague(ca, cb);
+    });
+  }, [data, clanByTag]);
   const seasonTags = useMemo(() => new Set((data?.season_clans ?? []).map((sc) => sc.clan_tag)), [data]);
   const unassigned = useMemo(() => (data?.entries ?? []).filter((entry) => !entry.cwl_clan_tag), [data]);
+
+  const toggleRosterCollapsed = (tag: string) => {
+    setCollapsedRosters((current) => {
+      const next = new Set(current);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
+      return next;
+    });
+  };
 
   // Draft clan selection: null means "same as what is saved".
   const [draft, setDraft] = useState<Set<string> | null>(null);
@@ -266,7 +323,7 @@ export default function CwlRosterPage() {
   const season = data?.season ?? null;
 
   return (
-    <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-6">
+    <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-36 space-y-6">
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
@@ -317,14 +374,33 @@ export default function CwlRosterPage() {
       ) : (
         <>
           <section className="astral-card p-5">
-            <h3 className="font-semibold text-white">Clans for this season</h3>
-            <p className="mt-1 text-sm text-astral-300/60">Tick the clans you want in {season.name}, then apply all changes at once.</p>
-            {(data?.clans.length ?? 0) === 0 ? (
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="font-semibold text-white">
+                  Clans for this season{' '}
+                  <span className="text-xs font-normal text-astral-300/60">({seasonTags.size}/{sortedClans.length} selected)</span>
+                </h3>
+                {!clansCollapsed && (
+                  <p className="mt-1 text-sm text-astral-300/60">Tick the clans you want in {season.name}, then apply all changes at once.</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setClansCollapsed((current) => !current)}
+                className="p-2 text-astral-300/70 hover:text-white hover:bg-white/5 rounded-lg shrink-0"
+                title={clansCollapsed ? 'Expand clans list' : 'Minimise clans list'}
+                aria-label={clansCollapsed ? 'Expand clans list' : 'Minimise clans list'}
+                aria-expanded={!clansCollapsed}
+              >
+                {clansCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+              </button>
+            </div>
+            {!clansCollapsed && ((sortedClans.length === 0) ? (
               <p className="mt-3 text-sm text-astral-300/50">No CWL clans yet. Add some on the Dashboard.</p>
             ) : (
               <>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {data?.clans.map((clan) => {
+                  {sortedClans.map((clan) => {
                     const selected = effectiveDraft.has(clan.clan_tag);
                     const saved = seasonTags.has(clan.clan_tag);
                     const sc = data.season_clans.find((item) => item.clan_tag === clan.clan_tag);
@@ -373,44 +449,65 @@ export default function CwlRosterPage() {
                   >
                     Reset
                   </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setDraft(new Set(data?.clans.map((clan) => clan.clan_tag)))}
-                    className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2 ml-1"
-                  >
-                    Select all
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setDraft(new Set())}
-                    className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2"
-                  >
-                    Select none
-                  </button>
-                </div>
-              </>
-            )}
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setDraft(new Set(sortedClans.map((clan) => clan.clan_tag)))}
+                      className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2 ml-1"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setDraft(new Set())}
+                      className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2"
+                    >
+                      Select none
+                    </button>
+                  </div>
+                </>
+              ))}
           </section>
 
-          {data?.season_clans.length === 0 && (
+          {sortedSeasonClans.length === 0 && (
             <div className="astral-card p-8 text-center text-sm text-astral-300/60">Select at least one clan above to start building rosters.</div>
           )}
 
-          {data?.season_clans.map((sc) => {
+          {sortedSeasonClans.length > 1 && (
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCollapsedRosters(new Set(sortedSeasonClans.map((sc) => sc.clan_tag)))}
+                className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2"
+              >
+                Minimise all clans
+              </button>
+              <span className="text-astral-300/30 text-xs">·</span>
+              <button
+                type="button"
+                onClick={() => setCollapsedRosters(new Set())}
+                className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2"
+              >
+                Expand all
+              </button>
+            </div>
+          )}
+
+          {sortedSeasonClans.map((sc) => {
             const clan = clanByTag.get(sc.clan_tag);
-            const roster = data.entries.filter((entry) => entry.cwl_clan_tag === sc.clan_tag).sort(byAssignment);
+            const roster = (data?.entries ?? []).filter((entry) => entry.cwl_clan_tag === sc.clan_tag).sort(byAssignment);
             const weighted = roster.filter((entry) => entry.war_weight !== null);
             const average = weighted.length > 0 ? Math.round(weighted.reduce((sum, entry) => sum + (entry.war_weight ?? 0), 0) / weighted.length) : null;
             const free = Math.max(0, sc.roster_size - roster.length);
             const full = roster.length >= sc.roster_size;
             const clanLabel = clan?.clan_name ?? sc.clan_tag;
             const fillers = [...unassigned].sort(byWeightDesc).slice(0, free);
+            const isCollapsed = collapsedRosters.has(sc.clan_tag);
 
             return (
-              <section key={sc.id} className="astral-card overflow-hidden">
-                <div className="p-5 flex flex-col lg:flex-row lg:items-center gap-4 border-b border-astral-700/20">
+              <section key={sc.id} className="astral-card">
+                <div className={`p-5 flex flex-col lg:flex-row lg:items-center gap-4 ${isCollapsed ? '' : 'border-b border-astral-700/20'}`}>
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                     {clan?.badge_url ? <img src={clan.badge_url} alt="" className="w-12 h-12 object-contain shrink-0" /> : <Shield className="w-10 h-10 text-astral-300/50 shrink-0" />}
                     <div className="min-w-0">
@@ -454,14 +551,24 @@ export default function CwlRosterPage() {
                       <Sparkles className="w-4 h-4" /> Auto-fill
                     </button>
                     <PlayerPicker
-                      players={unassigned}
+                      players={data?.entries ?? []}
                       disabled={busy || full}
                       onPick={(player) => void act({ action: 'assign', entry_id: player.id, clan_tag: sc.clan_tag })}
                     />
+                    <button
+                      type="button"
+                      onClick={() => toggleRosterCollapsed(sc.clan_tag)}
+                      className="p-2 text-astral-300/70 hover:text-white hover:bg-white/5 rounded-lg"
+                      title={isCollapsed ? `Expand ${clanLabel}` : `Minimise ${clanLabel}`}
+                      aria-label={isCollapsed ? `Expand ${clanLabel}` : `Minimise ${clanLabel}`}
+                      aria-expanded={!isCollapsed}
+                    >
+                      {isCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                    </button>
                   </div>
                 </div>
 
-                {roster.length === 0 ? (
+                {!isCollapsed && (roster.length === 0 ? (
                   <p className="p-8 text-center text-sm text-astral-300/50">No players assigned yet.</p>
                 ) : (
                   <div className="overflow-x-auto">
@@ -505,7 +612,7 @@ export default function CwlRosterPage() {
                       </tbody>
                     </table>
                   </div>
-                )}
+                ))}
               </section>
             );
           })}
