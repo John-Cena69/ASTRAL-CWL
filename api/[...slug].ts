@@ -998,6 +998,23 @@ async function handleSyncWarWeights(req: { method?: string; url: string; headers
       updated += chunk.length;
     }
 
+    // Remove rows for this clan that are not in the current war roster
+    const rosterTags = new Set(roster.map((m) => m.tag));
+    const { data: clanRows, error: clanRowsError } = await supabase
+      .from('war_weights')
+      .select('player_tag')
+      .eq('clan_tag', clanTag);
+    if (clanRowsError) throw new Error(clanRowsError.message);
+    const staleTags = (clanRows ?? []).map((r) => r.player_tag).filter((t) => !rosterTags.has(t));
+    for (let i = 0; i < staleTags.length; i += CHUNK) {
+      const { error } = await supabase
+        .from('war_weights')
+        .delete()
+        .eq('clan_tag', clanTag)
+        .in('player_tag', staleTags.slice(i, i + CHUNK));
+      if (error) throw new Error(error.message);
+    }
+
     send(res, 200, {
       ok: true,
       updated,
