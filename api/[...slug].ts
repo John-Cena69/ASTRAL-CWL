@@ -970,9 +970,18 @@ async function handleSyncWarWeights(req: { method?: string; url: string; headers
       return;
     }
 
-    const previousValues = new Map(
-      (existingWeights ?? []).map((weight) => [weight.player_tag, weight.value ?? 0])
-    );
+    const previousValues = new Map<string, number>();
+    // Fallback: weights set on the Home page (clan_players.war_weight = value * 5)
+    const { data: homeRows } = await supabase
+      .from('clan_players')
+      .select('player_tag, war_weight')
+      .eq('clan_tag', clanTag);
+    for (const row of homeRows ?? []) {
+      if (row.war_weight != null) previousValues.set(row.player_tag, Math.round(Number(row.war_weight) / 5));
+    }
+    for (const weight of existingWeights ?? []) {
+      if (weight.value != null) previousValues.set(weight.player_tag, weight.value);
+    }
     const now = new Date().toISOString();
     const upserts = roster.map((member, index) => {
       const th = member.townhallLevel ?? 0;
@@ -1056,6 +1065,7 @@ async function handleEditWarWeight(req: { method?: string; url: string; headers:
     const playerTag = `#${playerTagRaw.toUpperCase().replace(/^#+/, '')}`;
 
     try {
+      // Update war_weights if the player has a row (players who joined after the war may not)
       const { error, data } = await supabase
         .from('war_weights')
         .update({
@@ -1066,21 +1076,23 @@ async function handleEditWarWeight(req: { method?: string; url: string; headers:
         .eq('clan_tag', clanTag)
         .eq('player_tag', playerTag)
         .select();
-
       if (error) throw new Error(error.message);
-      if (!data || data.length === 0) {
-        send(res, 404, { ok: false, error: 'Player not found in war weights.' });
-        return;
-      }
 
       // Also sync to clan_players so the home page roster reflects the change
-      await supabase
+      const { data: playerRows, error: playerError } = await supabase
         .from('clan_players')
         .update({ war_weight: valueNum * 5, updated_date: new Date().toISOString() })
         .eq('clan_tag', clanTag)
-        .eq('player_tag', playerTag);
+        .eq('player_tag', playerTag)
+        .select('player_tag');
+      if (playerError) throw new Error(playerError.message);
 
-      send(res, 200, { ok: true, updated: data[0] });
+      if ((!data || data.length === 0) && (!playerRows || playerRows.length === 0)) {
+        send(res, 404, { ok: false, error: 'Player not found.' });
+        return;
+      }
+
+      send(res, 200, { ok: true, updated: data?.[0] ?? playerRows?.[0] });
     } catch (error) {
       send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Update failed.' });
     }
