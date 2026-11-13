@@ -89,6 +89,8 @@ export default function ClansPage() {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [signupEnabled, setSignupEnabled] = useState<boolean | null>(null);
+  const [signupSaving, setSignupSaving] = useState(false);
 
   const loadClans = async () => {
     if (!supabase) {
@@ -108,7 +110,47 @@ export default function ClansPage() {
 
   useEffect(() => {
     void loadClans();
+    void loadSignup();
   }, []);
+
+  const signupFetch = async (init: { method: 'GET' | 'POST'; body?: string }) => {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const { data: session } = await supabase.auth.getSession();
+    const token = session.session?.access_token;
+    const response = await fetch('/api/cwl-signup-settings', {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    const body = (await response.json().catch(() => ({}))) as { enabled?: boolean; error?: string };
+    if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+    return body;
+  };
+
+  const loadSignup = async () => {
+    try {
+      const body = await signupFetch({ method: 'GET' });
+      setSignupEnabled(Boolean(body.enabled));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Failed to load sign-up setting.');
+    }
+  };
+
+  const toggleSignup = async () => {
+    if (signupEnabled === null || signupSaving) return;
+    const next = !signupEnabled;
+    setSignupSaving(true);
+    try {
+      await signupFetch({ method: 'POST', body: JSON.stringify({ enabled: next }) });
+      setSignupEnabled(next);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Failed to update sign-up setting.');
+    } finally {
+      setSignupSaving(false);
+    }
+  };
 
   const authedFetch = async (method: 'POST' | 'DELETE', payload: Record<string, unknown>) => {
     if (!supabase) throw new Error('Supabase is not configured.');
@@ -198,11 +240,31 @@ export default function ClansPage() {
 
   return (
     <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-6">
+      <section className="astral-card p-5 flex items-center justify-between gap-4">
+        <div>
+          <h3 className="font-semibold text-white">Sign-ups</h3>
+          <p className="mt-1 text-sm text-astral-300/60">
+            {signupEnabled === null ? 'Loading...' : signupEnabled ? 'Sign-ups are enabled.' : 'Sign-ups are disabled.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={signupEnabled === true}
+          aria-label="Toggle CWL sign-ups"
+          disabled={signupEnabled === null || signupSaving}
+          onClick={() => void toggleSignup()}
+          className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition disabled:opacity-50 ${signupEnabled ? 'bg-emerald-500' : 'bg-astral-300/30'}`}
+        >
+          <span className={`inline-block h-5 w-5 rounded-full bg-white transition-transform ${signupEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+        </button>
+      </section>
+
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
             <Flag className="w-6 h-6 text-gold-400" />
-            <h2 className="font-display text-2xl font-bold text-white">CWL Clans</h2>
+            <h2 className="font-display text-2xl font-bold text-white">CWL Dashboard</h2>
           </div>
           <p className="mt-1 text-sm text-astral-300/60">Our CWL lineup — add a tag and details fill in automatically.</p>
         </div>
