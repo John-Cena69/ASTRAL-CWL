@@ -20,6 +20,7 @@ import Sidebar from '@/components/Sidebar';
 import ClanTable from '@/components/ClanTable';
 import ClansPage from '@/components/ClansPage';
 import EntriesPage from '@/components/EntriesPage';
+import CwlRosterPage from '@/components/CwlRosterPage';
 import AccountsPage from '@/components/AccountsPage';
 import WarsPage from '@/components/WarsPage';
 import { DEFAULT_COLUMNS } from '@/columns';
@@ -455,6 +456,7 @@ export default function App() {
         : activePage === 'wars' ? <WarsPage />
         : activePage === 'clans' ? <ClansPage />
         : activePage === 'entries' ? <EntriesPage />
+        : activePage === 'cwlroster' ? <CwlRosterPage />
         : null}
 
       {/* Roster page — only rendered on the Roster tab */}
