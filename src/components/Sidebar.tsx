@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Database,
   Flag,
-  Shield,
+  ListChecks,  Shield,
   Swords,
   X,
   Settings,
@@ -54,6 +54,7 @@ export const SIDEBAR_SECTIONS: SidebarSection[] = [
   { title: 'CWL', items: [
     { key: 'roster', label: 'Tracker', icon: Shield },
     { key: 'clans', label: 'Dashboard', icon: Flag },
+    { key: 'entries', label: 'Entries', icon: ListChecks },
   ] },
   { title: 'Fillers', items: [{ key: 'accounts', label: 'Accounts', icon: Database }] },
   { title: 'Wars', items: [{ key: 'wars', label: 'Wars', icon: Swords }] },
