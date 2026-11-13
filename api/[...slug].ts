@@ -1386,6 +1386,103 @@ async function handleSyncSettings(req: { method?: string; url: string; headers: 
   }
 }
 
+// GET/PATCH/DELETE /api/cwl-entries — CWL sign-ups list (cwl_entries_view + linked_players Discord IDs)
+async function handleCwlEntries(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }, auth: AuthResult): Promise<void> {
+  const method = req.method ?? 'GET';
+  if (!['GET', 'PATCH', 'DELETE'].includes(method)) {
+    send(res, 405, { ok: false, error: 'Use GET, PATCH or DELETE.' });
+    return;
+  }
+  if (!auth.ok) {
+    send(res, 401, { ok: false, error: 'Unauthorized.' });
+    return;
+  }
+  const normTag = (tag: unknown): string => `#${String(tag ?? '').trim().toUpperCase().replace(/^#+/, '')}`;
+  try {
+    const supabase = adminClient();
+    if (method === 'GET') {
+      const { data, error } = await supabase
+        .from('cwl_entries_view')
+        .select('*')
+        .order('created_date', { ascending: true });
+      if (error) throw new Error(error.message);
+      const entries = data ?? [];
+      const lookup = new Set<string>();
+      for (const entry of entries) {
+        const n = normTag(entry.player_tag);
+        lookup.add(n);
+        lookup.add(n.slice(1));
+      }
+      const discordMap = new Map<string, string>();
+      let warning: string | null = null;
+      try {
+        const playerbase = playerbaseAdminClient();
+        const list = [...lookup];
+        for (let i = 0; i < list.length; i += 200) {
+          const { data: linked, error: linkedError } = await playerbase
+            .from('linked_players')
+            .select('player_tag, discord_id')
+            .in('player_tag', list.slice(i, i + 200));
+          if (linkedError) throw new Error(linkedError.message);
+          for (const item of linked ?? []) {
+            const key = normTag(item.player_tag);
+            const id = item.discord_id != null ? String(item.discord_id).trim() : '';
+            if (id && !discordMap.has(key)) discordMap.set(key, id);
+          }
+        }
+      } catch (lookupError) {
+        warning = `Discord ID lookup failed: ${lookupError instanceof Error ? lookupError.message : 'unknown error'}`;
+      }
+      send(res, 200, {
+        ok: true,
+        warning,
+        entries: entries.map((entry) => ({ ...entry, discord_id: discordMap.get(normTag(entry.player_tag)) ?? null })),
+      });
+      return;
+    }
+
+    const body = readJsonBody(req);
+    const id = String(body.id ?? '');
+    if (!id) {
+      send(res, 400, { ok: false, error: 'id is required.' });
+      return;
+    }
+    if (method === 'DELETE') {
+      const { error } = await supabase.from('cwl_entries').delete().eq('id', id);
+      if (error) throw new Error(error.message);
+      send(res, 200, { ok: true });
+      return;
+    }
+
+    const updates: Record<string, unknown> = {};
+    if ('notes' in body) {
+      const notes = typeof body.notes === 'string' ? body.notes.trim() : '';
+      updates.notes = notes || null;
+    }
+    if ('war_weight' in body) {
+      if (body.war_weight === null || body.war_weight === '') {
+        updates.war_weight_override = null;
+      } else {
+        const weight = Number(body.war_weight);
+        if (!Number.isInteger(weight) || weight < 0) {
+          send(res, 400, { ok: false, error: 'War weight must be a non-negative whole number.' });
+          return;
+        }
+        updates.war_weight_override = weight;
+      }
+    }
+    if (Object.keys(updates).length === 0) {
+      send(res, 400, { ok: false, error: 'Nothing to update.' });
+      return;
+    }
+    const { error } = await supabase.from('cwl_entries').update(updates).eq('id', id);
+    if (error) throw new Error(error.message);
+    send(res, 200, { ok: true });
+  } catch (error) {
+    send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Request failed.' });
+  }
+}
+
 // GET/POST /api/cwl-signup-settings — CWL sign-up switch (bot_settings.cwl_signup_enabled, playerbase DB)
 async function handleCwlSignupSettings(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }, auth: AuthResult): Promise<void> {
   const method = req.method ?? 'GET';
@@ -2313,6 +2410,7 @@ export default async function handler(req: unknown, res: {
     const globalPageByPath: Record<string, 'cwl' | 'fillers' | 'wars'> = {
       'cwl-clans': 'cwl',
       'cwl-signup-settings': 'cwl',
+      'cwl-entries': 'cwl',
       'sync-fillers': 'fillers',
       'sync-wars': 'wars',
     };
@@ -2376,6 +2474,9 @@ export default async function handler(req: unknown, res: {
         break;
       case 'cwl-clans':
         await handleCwlClans(r, res, auth);
+        break;
+      case 'cwl-entries':
+        await handleCwlEntries(r, res, auth);
         break;
       case 'cwl-signup-settings':
         await handleCwlSignupSettings(r, res, auth);
