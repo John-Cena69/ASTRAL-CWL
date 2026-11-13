@@ -117,7 +117,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
   const [addingPlayer, setAddingPlayer] = useState(false);
 
   // Edit form state
-  const [editingValues, setEditingValues] = useState<Record<string, { tag: string; role: string; joinDate: string }>>({});
+  const [editingValues, setEditingValues] = useState<Record<string, { tag: string; role: string; joinDate: string; warWeight: string }>>({});
   const [pendingDeleteTag, setPendingDeleteTag] = useState<string | null>(null);
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
 
@@ -226,12 +226,13 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
   };
 
   const startEdit = () => {
-    const values: Record<string, { tag: string; role: string; joinDate: string }> = {};
+    const values: Record<string, { tag: string; role: string; joinDate: string; warWeight: string }> = {};
     for (const player of players) {
       values[player.id] = {
         tag: player.player_tag.replace(/^#/, ''),
         role: player.role ?? '',
         joinDate: player.join_date ? new Date(player.join_date).toISOString().split('T')[0] : '',
+        warWeight: String(player.war_weight ?? 0),
       };
     }
     setEditingValues(values);
@@ -244,7 +245,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
     setEditingValues({});
   };
 
-  const updateEditingValue = (id: string, field: 'tag' | 'role' | 'joinDate', value: string) => {
+  const updateEditingValue = (id: string, field: 'tag' | 'role' | 'joinDate' | 'warWeight', value: string) => {
     setEditingValues((current) => ({
       ...current,
       [id]: { ...current[id], [field]: value },
@@ -271,13 +272,28 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
           join_date: draft.joinDate.trim(),
         };
       });
-    if (updates.length === 0) {
+    const weightUpdates = players
+      .filter((player) => {
+        const draft = editingValues[player.id];
+        return draft && draft.warWeight.trim() !== String(player.war_weight ?? 0);
+      })
+      .map((player) => ({
+        player_tag: player.player_tag,
+        war_weight: Number(editingValues[player.id].warWeight.trim()),
+        raw: editingValues[player.id].warWeight.trim(),
+      }));
+
+    if (updates.length === 0 && weightUpdates.length === 0) {
       cancelEdit();
       return;
     }
 
     if (updates.some((update) => !update.new_player_tag || !update.role || !update.join_date)) {
       setError('Every player must have a tag, role, and join date.');
+      return;
+    }
+    if (weightUpdates.some((w) => !w.raw || !Number.isInteger(w.war_weight) || w.war_weight < 0 || w.war_weight % 5 !== 0)) {
+      setError('War weight must be a whole number of 0 or greater, divisible by 5.');
       return;
     }
 
@@ -287,24 +303,45 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
-      const response = await fetch('/api/edit-clan-players', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ clan_tag: resolvedClanTag, updates }),
-      });
-      const body = (await response.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-        updated?: number;
-        failed?: string[];
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       };
-      if (!response.ok) throw new Error(body.error || `Batch update failed (HTTP ${response.status}).`);
-      if (!body.ok) throw new Error(body.error || 'Batch update failed.');
-      if (body.failed?.length) throw new Error(`Could not update: ${body.failed.join(', ')}`);
-      setNotice(`Updated ${body.updated ?? updates.length} player(s).`);
+      let updatedCount = 0;
+      if (updates.length > 0) {
+        const response = await fetch('/api/edit-clan-players', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ clan_tag: resolvedClanTag, updates }),
+        });
+        const body = (await response.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          updated?: number;
+          failed?: string[];
+        };
+        if (!response.ok) throw new Error(body.error || `Batch update failed (HTTP ${response.status}).`);
+        if (!body.ok) throw new Error(body.error || 'Batch update failed.');
+        if (body.failed?.length) throw new Error(`Could not update: ${body.failed.join(', ')}`);
+        updatedCount = body.updated ?? updates.length;
+      }
+      // Weight edits go after tag edits; they use the player's current (possibly new) tag.
+      for (const w of weightUpdates) {
+        const tagUpdate = updates.find((u) => u.player_tag === w.player_tag);
+        const response = await fetch('/api/edit-war-weight', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            clan_tag: resolvedClanTag,
+            player_tag: tagUpdate?.new_player_tag ?? w.player_tag,
+            value: w.war_weight / 5,
+          }),
+        });
+        const wb = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        if (!response.ok || !wb.ok) throw new Error(wb.error || `War weight update failed for ${w.player_tag}.`);
+        if (!updates.some((u) => u.player_tag === w.player_tag)) updatedCount += 1;
+      }
+      setNotice(`Updated ${updatedCount} player(s).`);
       cancelEdit();
       await loadRoster();
     } catch (err) {
@@ -640,8 +677,8 @@ function EditRow({
   player: ClanRosterPlayer;
   index: number;
   roles: string[];
-  values?: { tag: string; role: string; joinDate: string };
-  onChange: (field: 'tag' | 'role' | 'joinDate', value: string) => void;
+  values?: { tag: string; role: string; joinDate: string; warWeight: string };
+  onChange: (field: 'tag' | 'role' | 'joinDate' | 'warWeight', value: string) => void;
   onDelete?: (playerTag: string) => void;
   isDeleting: boolean;
 }) {
@@ -698,7 +735,15 @@ function EditRow({
         />
       </td>
       <td className="px-4 py-3 text-center text-astral-100 font-mono text-gold-300">
-        {player.war_weight ?? '—'}
+        <input
+          type="number"
+          min="0"
+          step="5"
+          value={values.warWeight}
+          onChange={(event) => onChange('warWeight', event.target.value)}
+          className="astral-input w-24 text-center text-xs"
+          aria-label={`War weight for ${player.player_name}`}
+        />
       </td>
       <td className="px-4 py-3 text-center">
         {onDelete && (
