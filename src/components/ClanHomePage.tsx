@@ -738,7 +738,7 @@ function EditRow({
         <input
           type="number"
           min="0"
-          step="5"
+          step="1000"
           value={values.warWeight}
           onChange={(event) => onChange('warWeight', event.target.value)}
           className="astral-input w-24 text-center text-xs"
