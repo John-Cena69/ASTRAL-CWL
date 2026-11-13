@@ -53,7 +53,7 @@ function normalizeTrackedClan(value: unknown): TrackedClan | null {
 export const SIDEBAR_SECTIONS: SidebarSection[] = [
   { title: 'CWL', items: [
     { key: 'roster', label: 'Tracker', icon: Shield },
-    { key: 'clans', label: 'Clans', icon: Flag },
+    { key: 'clans', label: 'Dashboard', icon: Flag },
   ] },
   { title: 'Fillers', items: [{ key: 'accounts', label: 'Accounts', icon: Database }] },
   { title: 'Wars', items: [{ key: 'wars', label: 'Wars', icon: Swords }] },
