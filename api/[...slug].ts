@@ -1386,6 +1386,45 @@ async function handleSyncSettings(req: { method?: string; url: string; headers: 
   }
 }
 
+// GET/POST /api/cwl-signup-settings — CWL sign-up switch (bot_settings.cwl_signup_enabled, playerbase DB)
+async function handleCwlSignupSettings(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }, auth: AuthResult): Promise<void> {
+  const method = req.method ?? 'GET';
+  if (method !== 'GET' && method !== 'POST') {
+    send(res, 405, { ok: false, error: 'Use GET or POST.' });
+    return;
+  }
+  if (!auth.ok) {
+    send(res, 401, { ok: false, error: 'Unauthorized.' });
+    return;
+  }
+  try {
+    const playerbase = playerbaseAdminClient();
+    if (method === 'POST') {
+      const body = readJsonBody(req);
+      if (typeof body.enabled !== 'boolean') {
+        send(res, 400, { ok: false, error: '"enabled" must be a boolean.' });
+        return;
+      }
+      const { error } = await playerbase
+        .from('bot_settings')
+        .upsert({ setting_name: 'cwl_signup_enabled', setting_value: body.enabled ? 'true' : 'false' }, { onConflict: 'setting_name' });
+      if (error) throw new Error(error.message);
+      send(res, 200, { ok: true, enabled: body.enabled });
+      return;
+    }
+    const { data, error } = await playerbase
+      .from('bot_settings')
+      .select('setting_value')
+      .eq('setting_name', 'cwl_signup_enabled')
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    const enabled = String(data?.setting_value ?? '').trim().toLowerCase() === 'true';
+    send(res, 200, { ok: true, enabled });
+  } catch (error) {
+    send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Request failed.' });
+  }
+}
+
 // POST/DELETE /api/cwl-clans — CWL clans directory
 async function handleCwlClans(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }, auth: AuthResult): Promise<void> {
   const method = req.method ?? 'POST';
@@ -2273,6 +2312,7 @@ export default async function handler(req: unknown, res: {
 
     const globalPageByPath: Record<string, 'cwl' | 'fillers' | 'wars'> = {
       'cwl-clans': 'cwl',
+      'cwl-signup-settings': 'cwl',
       'sync-fillers': 'fillers',
       'sync-wars': 'wars',
     };
@@ -2336,6 +2376,9 @@ export default async function handler(req: unknown, res: {
         break;
       case 'cwl-clans':
         await handleCwlClans(r, res, auth);
+        break;
+      case 'cwl-signup-settings':
+        await handleCwlSignupSettings(r, res, auth);
         break;
       case 'strike-config':
         if (getQuery(r).type === 'global') {
