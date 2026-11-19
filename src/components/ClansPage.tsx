@@ -109,7 +109,7 @@ function Modal({ children }: { children: ReactNode }) {
 const LEAGUE_PIPS: Record<string, number> = { i: 3, ii: 2, iii: 1 };
 
 function leagueBadgeSrc(league: string | null): string | null {
-  if (!league || league.trim().toLowerCase().includes('unrank')) return '/Unranked.webp';
+  if (!league || league.trim().toLowerCase().includes('unrank')) return '/unranked.webp';
   const lower = league.trim().toLowerCase();
   if (lower.includes('legend')) return '/legend.webp';
   const base = ['bronze', 'silver', 'gold', 'crystal', 'master', 'champion', 'titan'].find((b) =>
