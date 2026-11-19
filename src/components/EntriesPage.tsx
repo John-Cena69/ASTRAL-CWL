@@ -13,7 +13,6 @@ import {
   RefreshCw,
   Search,
   Shield,
-  Swords,
   Trash2,
   UserCheck,
   UserMinus,
@@ -690,12 +689,10 @@ export default function EntriesPage() {
                           <CopyableValue
                             value={entry.discord_id}
                             label="Discord ID"
-                            className="font-mono text-xs text-astral-200/90 bg-space-900/60 border border-astral-700/30 px-2 py-0.5 rounded-md"
+                            className="font-mono text-xs text-astral-200"
                           />
                         ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] text-astral-300/35 bg-space-900/30 border border-astral-700/15 italic">
-                            Not linked
-                          </span>
+                          <span className="text-xs text-astral-300/35">—</span>
                         )}
                       </td>
 
@@ -732,27 +729,24 @@ export default function EntriesPage() {
                       </td>
 
                       {/* War Weight */}
-                      <td className="px-3 py-3.5 text-right whitespace-nowrap">
+                      <td className="px-3 py-3.5 text-right whitespace-nowrap tabular-nums">
                         {entry.war_weight != null && entry.war_weight > 0 ? (
-                          <span className="inline-flex items-center justify-end gap-1.5 font-mono text-xs font-semibold text-white bg-space-900/60 border border-astral-700/30 px-2.5 py-1 rounded-lg tabular-nums">
-                            <Swords className="w-3 h-3 text-gold-400/80 shrink-0" />
+                          <span className="text-sm font-medium text-astral-100">
                             {entry.war_weight.toLocaleString()}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] text-astral-300/35 italic">
-                            Not set
-                          </span>
+                          <span className="text-xs text-astral-300/35">—</span>
                         )}
                       </td>
 
                       {/* Notes (Full Multi-line Expansion!) */}
                       <td className="px-3 py-3.5 min-w-[14rem] max-w-[24rem]">
                         {hasNotes ? (
-                          <div className="text-xs text-astral-100/90 leading-relaxed whitespace-pre-wrap break-words bg-space-900/40 border border-astral-700/25 rounded-lg px-2.5 py-1.5">
+                          <div className="text-xs text-astral-100/90 leading-relaxed whitespace-pre-wrap break-words">
                             {entry.notes}
                           </div>
                         ) : (
-                          <span className="text-[11px] text-astral-300/30 italic">No notes</span>
+                          <span className="text-xs text-astral-300/35">—</span>
                         )}
                       </td>
 
