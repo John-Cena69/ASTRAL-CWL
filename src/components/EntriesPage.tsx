@@ -243,8 +243,9 @@ export default function EntriesPage() {
     setError(null);
     try {
       const payload: Record<string, unknown> = { id: editing.id, notes: notesInput, cwl_clan_tag: clanInput };
-      if (!editing.war_weight_from_clan_players) {
-        payload.war_weight = weightInput.trim() === '' ? null : Number(weightInput);
+      const nextWeight = weightInput.trim() === '' ? null : Number(weightInput);
+      if (nextWeight !== editing.war_weight) {
+        payload.war_weight = nextWeight;
       }
       await call('PATCH', payload);
       setEditing(null);
@@ -439,12 +440,11 @@ export default function EntriesPage() {
                 min={0}
                 value={weightInput}
                 onChange={(event) => setWeightInput(event.target.value)}
-                disabled={editing.war_weight_from_clan_players}
-                className="astral-input mt-1.5 w-full disabled:opacity-50"
+                className="astral-input mt-1.5 w-full"
               />
             </label>
             {editing.war_weight_from_clan_players && (
-              <p className="mt-1 text-xs text-astral-300/50">Weight comes from the clan roster and is updated there.</p>
+              <p className="mt-1 text-xs text-astral-300/50">Synced with the clan roster and war weights.</p>
             )}
             <div className="mt-4 text-sm text-astral-200">
               CWL Clan
