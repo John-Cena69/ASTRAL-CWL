@@ -79,7 +79,7 @@ const CWL_TOGGLES: {
   {
     key: 'cwl_roster_enabled',
     title: 'Roster',
-    description: 'Publish and sync assigned CWL clan rosters.',
+    description: 'Publish and allow members to see roster.',
     enabledText: 'Roster is enabled',
     disabledText: 'Roster is disabled',
     ariaLabel: 'Toggle CWL roster',
@@ -88,7 +88,7 @@ const CWL_TOGGLES: {
   {
     key: 'cwl_tracker_enabled',
     title: 'Tracker',
-    description: 'Track player movement and live clan status.',
+    description: 'Track status of signed up members and CWL clans.',
     enabledText: 'Tracker is enabled',
     disabledText: 'Tracker is disabled',
     ariaLabel: 'Toggle CWL tracker',
@@ -308,7 +308,7 @@ export default function ClansPage() {
                 CWL Dashboard
               </h2>
               <p className="mt-1 text-sm text-astral-200/70">
-                Configure live CWL bot controls and manage our CWL clan lineup.
+                Control CWL workflow and manage CWL clans.
               </p>
             </div>
           </div>
@@ -502,7 +502,7 @@ export default function ClansPage() {
                 )}
               </div>
               <p className="text-xs text-astral-300/60">
-                Our CWL lineup sorted by league — add a tag and details fill in automatically.
+                View and manage CWL Clans.
               </p>
             </div>
           </div>
