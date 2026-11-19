@@ -53,7 +53,6 @@ function normalizeTrackedClan(value: unknown): TrackedClan | null {
 
 export const SIDEBAR_SECTIONS: SidebarSection[] = [
   { title: 'CWL', items: [
-    { key: 'roster', label: 'Tracker', icon: Shield },
     { key: 'clans', label: 'Dashboard', icon: Flag },
     { key: 'entries', label: 'Entries', icon: ListChecks },
     { key: 'cwlroster', label: 'Roster', icon: Users },
@@ -134,7 +133,7 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
             if (active && !initialNavigationSet.current) {
               const firstClan = clans.find((clan) => accessEntries.find(([tag, allowed]) => tag === clan.clan_tag && allowed));
               const firstPage: PageKey | ClanPage | null =
-                globalAccess.find(([key, allowed]) => key === 'cwl' && allowed) ? 'roster'
+                globalAccess.find(([key, allowed]) => key === 'cwl' && allowed) ? 'clans'
                   : globalAccess.find(([key, allowed]) => key === 'fillers' && allowed) ? 'accounts'
                     : globalAccess.find(([key, allowed]) => key === 'wars' && allowed) ? 'wars'
                       : firstClan ? clanPageKey(firstClan.clan_tag, firstClan.clan_name, 'home')
