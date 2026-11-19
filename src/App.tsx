@@ -28,6 +28,12 @@ export default function App() {
   const [allowedRole, setAllowedRole] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showProfile, setShowProfile] = useState(false);
+  const [liveDiscordProfile, setLiveDiscordProfile] = useState<{
+    discord_id: string | null;
+    nickname: string | null;
+    username: string | null;
+    avatar_url: string | null;
+  } | null>(null);
   const [activePage, setActivePage] = useState<ActivePage>('clans');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -129,14 +135,77 @@ export default function App() {
     if (signOutError) setError(signOutError.message);
   };
 
-  const profileMetadata = user?.user_metadata ?? {};
+  const profileMetadata = (user?.user_metadata ?? {}) as Record<string, unknown>;
   const discordIdentity = user?.identities?.find((identity) => identity.provider === 'discord');
-  const discordData = discordIdentity?.identity_data ?? {};
+  const discordData = (discordIdentity?.identity_data ?? {}) as Record<string, unknown>;
+  const customClaims = (profileMetadata.custom_claims ?? discordData.custom_claims ?? {}) as Record<string, unknown>;
   const removeDiscriminator = (value: unknown) =>
-    typeof value === 'string' ? value.replace(/#0$/, '') : '';
-  const username = removeDiscriminator(
-    profileMetadata.user_name || discordData.username || profileMetadata.name
-  ) || 'Not available';
+    typeof value === 'string' ? value.trim().replace(/#0$/, '') : '';
+
+  const fallbackUsername =
+    removeDiscriminator(profileMetadata.user_name || discordData.username || profileMetadata.name) ||
+    'Not available';
+  const fallbackNickname =
+    (typeof profileMetadata.discord_nickname === 'string' && profileMetadata.discord_nickname.trim()) ||
+    (typeof customClaims.global_name === 'string' && customClaims.global_name.trim()) ||
+    (typeof profileMetadata.full_name === 'string' && profileMetadata.full_name.trim()) ||
+    (typeof discordData.full_name === 'string' && discordData.full_name.trim()) ||
+    fallbackUsername;
+  const fallbackDiscordId = String(
+    profileMetadata.provider_id ??
+      discordIdentity?.id ??
+      discordData.provider_id ??
+      discordData.sub ??
+      profileMetadata.sub ??
+      ''
+  ).trim();
+  const fallbackAvatarUrl =
+    (typeof profileMetadata.avatar_url === 'string' && profileMetadata.avatar_url.trim()) ||
+    (typeof discordData.avatar_url === 'string' && discordData.avatar_url.trim()) ||
+    null;
+
+  const username = liveDiscordProfile?.username || fallbackUsername;
+  const nickname = liveDiscordProfile?.nickname || fallbackNickname;
+  const discordId = liveDiscordProfile?.discord_id || fallbackDiscordId || 'Not available';
+  const avatarUrl = liveDiscordProfile?.avatar_url || fallbackAvatarUrl;
+
+  const refreshDiscordProfile = useCallback(async () => {
+    if (!supabase || !user) return;
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) return;
+      const resp = await fetch('/api/discord-profile', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) return;
+      const body = (await resp.json().catch(() => ({}))) as {
+        ok?: boolean;
+        discord_id?: string | null;
+        nickname?: string | null;
+        username?: string | null;
+        avatar_url?: string | null;
+      };
+      if (body.ok) {
+        setLiveDiscordProfile({
+          discord_id: body.discord_id ?? null,
+          nickname: body.nickname ?? null,
+          username: body.username ?? null,
+          avatar_url: body.avatar_url ?? null,
+        });
+      }
+    } catch {
+      // Ignore if running in local Vite dev without /api
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      void refreshDiscordProfile();
+    } else {
+      setLiveDiscordProfile(null);
+    }
+  }, [user, refreshDiscordProfile]);
 
   useEffect(() => {
     if (sidebarReady && initialLoading) {
@@ -256,15 +325,21 @@ export default function App() {
 
             <div className="relative">
               <button
-                onClick={() => setShowProfile((visible) => !visible)}
+                onClick={() => {
+                  setShowProfile((visible) => {
+                    const next = !visible;
+                    if (next) void refreshDiscordProfile();
+                    return next;
+                  });
+                }}
                 className="rounded-full focus:outline-none focus:ring-2 focus:ring-gold-400/70"
                 title="Open Discord profile"
                 aria-label="Open Discord profile"
                 aria-expanded={showProfile}
               >
-                {profileMetadata.avatar_url ? (
+                {avatarUrl ? (
                   <img
-                    src={profileMetadata.avatar_url}
+                    src={avatarUrl}
                     alt=""
                     className="w-9 h-9 rounded-full object-cover border border-gold-400/60"
                   />
@@ -283,30 +358,33 @@ export default function App() {
         <section className="relative z-20 border-b border-astral-700/20 bg-space-800/80 backdrop-blur-md">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex justify-end">
             <div className="w-full sm:w-80 astral-card p-4 shadow-xl shadow-space-900/50">
-              <div className="flex items-center gap-3 pb-3 border-b border-astral-700/30">
-                {profileMetadata.avatar_url && (
+              <div className="flex items-start gap-3.5 pb-3.5">
+                {avatarUrl ? (
                   <img
-                    src={profileMetadata.avatar_url}
+                    src={avatarUrl}
                     alt=""
-                    className="w-11 h-11 rounded-full object-cover border border-gold-400/40"
+                    className="w-14 h-14 rounded-full object-cover border border-gold-400/50 shrink-0 shadow-md shadow-space-950/60"
                   />
+                ) : (
+                  <div className="w-14 h-14 rounded-full bg-astral-700/70 flex items-center justify-center border border-gold-400/50 shrink-0">
+                    <Sparkles className="w-6 h-6 text-gold-300" />
+                  </div>
                 )}
-                <div className={profileMetadata.avatar_url ? '' : 'pl-1'}>
-                  <p className="font-semibold text-white truncate">@{username}</p>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="font-semibold text-base text-white leading-tight truncate">
+                    {nickname}
+                  </p>
+                  <p className="text-xs text-astral-200/80 truncate">
+                    @{username}
+                  </p>
+                  <p className="text-xs text-astral-300/70 truncate">
+                    Discord ID: <span className="font-mono text-astral-100">{discordId}</span>
+                  </p>
+                  <p className="text-xs text-astral-300/70 pt-0.5">
+                    Role: <span className="text-gold-300 font-medium capitalize">{allowedRole || 'Unknown'}</span>
+                  </p>
                 </div>
               </div>
-              <dl className="py-3 space-y-2 text-sm">
-                <div className="flex justify-between gap-3">
-                  <dt className="text-astral-300/60">Joined</dt>
-                  <dd className="text-astral-100 text-right">
-                    {new Date(user.created_at).toLocaleDateString()}
-                  </dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-astral-300/60">Role</dt>
-                  <dd className="text-gold-300 capitalize">{allowedRole || 'Unknown'}</dd>
-                </div>
-              </dl>
               <button
                 onClick={handleSignOut}
                 className="astral-btn-ghost w-full justify-center text-sm border-t border-astral-700/30 pt-3 rounded-none"
