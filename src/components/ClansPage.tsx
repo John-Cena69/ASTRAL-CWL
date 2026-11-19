@@ -382,7 +382,7 @@ export default function ClansPage() {
                 CWL Settings
               </h3>
               <p className="text-xs text-astral-300/60">
-                Toggle CWL automation switches in real time.
+                Configure CWL Settings through toggle switches.
               </p>
             </div>
           </div>
