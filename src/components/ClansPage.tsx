@@ -6,16 +6,14 @@ import {
   ClipboardCheck,
   Copy,
   ExternalLink,
-  Flag,
+  Link2,
   LoaderCircle,
   Plus,
   RefreshCw,
   Settings2,
   Shield,
-  Swords,
   Trash2,
   Trophy,
-  User,
   Users,
   X,
 } from 'lucide-react';
@@ -303,7 +301,7 @@ export default function ClansPage() {
         <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-start sm:items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-gold-400/20 to-astral-600/30 border border-gold-400/30 flex items-center justify-center shrink-0 shadow-lg shadow-astral-950/60">
-              <Flag className="w-6 h-6 text-gold-300" />
+              <img src="/cwlmedal.webp" alt="CWL Medal" className="w-8 h-8 object-contain drop-shadow" />
             </div>
             <div>
               <h2 className="font-display text-2xl sm:text-3xl font-bold text-white tracking-tight">
@@ -627,7 +625,7 @@ export default function ClansPage() {
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <h4 className="font-display text-lg font-bold text-white truncate">
+                      <h4 className="font-body text-lg font-bold text-white tracking-tight truncate">
                         {clan.clan_name ?? 'Unknown clan'}
                       </h4>
 
@@ -680,7 +678,7 @@ export default function ClansPage() {
 
                   <div className="bg-space-900/35 border-t border-astral-700/20 divide-y divide-astral-700/15">
                     <div className="px-5 py-2.5 flex items-center gap-2 text-sm text-astral-200">
-                      <User className="w-4 h-4 text-astral-300/60" />
+                      <img src="/clan_owner.png" alt="" className="w-4 h-4 object-contain shrink-0" />
                       <span className="text-astral-300/60 text-xs uppercase tracking-wide">
                         Leader
                       </span>
@@ -689,9 +687,9 @@ export default function ClansPage() {
                       </span>
                     </div>
                     <div className="px-5 py-2.5 flex items-center gap-2 text-sm text-astral-200">
-                      <Swords className="w-4 h-4 text-astral-300/60" />
+                      <Link2 className="w-4 h-4 text-astral-300/70 shrink-0" />
                       <span className="text-astral-300/60 text-xs uppercase tracking-wide">
-                        In-game profile
+                        In-game link
                       </span>
                       <a
                         href={`https://link.clashofclans.com/en?action=OpenClanProfile&tag=${encodeURIComponent(clan.clan_tag)}`}
