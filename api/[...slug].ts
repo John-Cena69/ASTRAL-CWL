@@ -1965,7 +1965,10 @@ async function handleCwlEntries(req: { method?: string; url: string; headers: Re
   }
 }
 
-// GET/POST /api/cwl-signup-settings — CWL sign-up switch (bot_settings.cwl_signup_enabled, playerbase DB)
+const CWL_SETTING_KEYS = ['cwl_signup_enabled', 'cwl_roster_enabled', 'cwl_tracker_enabled'] as const;
+type CwlSettingKey = (typeof CWL_SETTING_KEYS)[number];
+
+// GET/POST /api/cwl-signup-settings — CWL switches (bot_settings in playerbase DB)
 async function handleCwlSignupSettings(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }, auth: AuthResult): Promise<void> {
   const method = req.method ?? 'GET';
   if (method !== 'GET' && method !== 'POST') {
@@ -1980,25 +1983,45 @@ async function handleCwlSignupSettings(req: { method?: string; url: string; head
     const playerbase = playerbaseAdminClient();
     if (method === 'POST') {
       const body = readJsonBody(req);
+      const rawKey = typeof body.setting_name === 'string' && body.setting_name.trim()
+        ? body.setting_name.trim()
+        : 'cwl_signup_enabled';
+      if (!CWL_SETTING_KEYS.includes(rawKey as CwlSettingKey)) {
+        send(res, 400, { ok: false, error: `Invalid setting_name. Must be one of: ${CWL_SETTING_KEYS.join(', ')}.` });
+        return;
+      }
       if (typeof body.enabled !== 'boolean') {
         send(res, 400, { ok: false, error: '"enabled" must be a boolean.' });
         return;
       }
       const { error } = await playerbase
         .from('bot_settings')
-        .upsert({ setting_name: 'cwl_signup_enabled', setting_value: body.enabled ? 'true' : 'false' }, { onConflict: 'setting_name' });
+        .upsert({ setting_name: rawKey, setting_value: body.enabled ? 'true' : 'false' }, { onConflict: 'setting_name' });
       if (error) throw new Error(error.message);
-      send(res, 200, { ok: true, enabled: body.enabled });
+      send(res, 200, { ok: true, setting_name: rawKey, enabled: body.enabled });
       return;
     }
     const { data, error } = await playerbase
       .from('bot_settings')
-      .select('setting_value')
-      .eq('setting_name', 'cwl_signup_enabled')
-      .maybeSingle();
+      .select('setting_name, setting_value')
+      .in('setting_name', [...CWL_SETTING_KEYS]);
     if (error) throw new Error(error.message);
-    const enabled = String(data?.setting_value ?? '').trim().toLowerCase() === 'true';
-    send(res, 200, { ok: true, enabled });
+    const byKey = new Map<string, boolean>();
+    for (const row of data ?? []) {
+      const key = String(row.setting_name ?? '').trim();
+      const val = String(row.setting_value ?? '').trim().toLowerCase() === 'true';
+      byKey.set(key, val);
+    }
+    const cwl_signup_enabled = byKey.get('cwl_signup_enabled') ?? false;
+    const cwl_roster_enabled = byKey.get('cwl_roster_enabled') ?? false;
+    const cwl_tracker_enabled = byKey.get('cwl_tracker_enabled') ?? false;
+    send(res, 200, {
+      ok: true,
+      enabled: cwl_signup_enabled,
+      cwl_signup_enabled,
+      cwl_roster_enabled,
+      cwl_tracker_enabled,
+    });
   } catch (error) {
     send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Request failed.' });
   }
