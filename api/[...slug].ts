@@ -1469,15 +1469,17 @@ async function handleCwlRoster(req: { method?: string; url: string; headers: Rec
 
     if (method === 'GET') {
       const season = await getActive();
-      const [{ data: past, error: pastError }, { data: allClans, error: clansError }, { data: entries, error: entriesError }, rolesResult] = await Promise.all([
+      const [{ data: past, error: pastError }, { data: allClans, error: clansError }, { data: entries, error: entriesError }, { data: rawEntries }, rolesResult] = await Promise.all([
         supabase.from('cwl_seasons').select('*').eq('status', 'closed').order('closed_at', { ascending: false }).limit(10),
         supabase.from('cwl_clans').select('clan_tag, clan_name, cwl_league, badge_url'),
         supabase.from('cwl_entries_view').select('*').order('created_date', { ascending: true }),
+        supabase.from('cwl_entries').select('id, status, current_clan, cwl_assigned_at'),
         fetchCwlGuildRoles(),
       ]);
       if (pastError) throw new Error(pastError.message);
       if (clansError) throw new Error(clansError.message);
       if (entriesError) throw new Error(entriesError.message);
+      const rawById = new Map((rawEntries ?? []).map((row) => [row.id as string, row as { status?: string | null; current_clan?: string | null; cwl_assigned_at?: string | null }]));
 
       let seasonClans: unknown[] = [];
       if (season) {
@@ -1527,7 +1529,16 @@ async function handleCwlRoster(req: { method?: string; url: string; headers: Rec
         clans: allClans ?? [],
         season_clans: seasonClans,
         discord_roles: rolesResult.roles,
-        entries: (entries ?? []).map((entry) => ({ ...entry, discord_id: discordMap.get(normTag(entry.player_tag)) ?? null })),
+        entries: (entries ?? []).map((entry) => {
+          const extra = rawById.get(entry.id as string);
+          return {
+            ...entry,
+            status: entry.status ?? extra?.status ?? null,
+            current_clan: entry.current_clan ?? extra?.current_clan ?? null,
+            cwl_assigned_at: entry.cwl_assigned_at ?? extra?.cwl_assigned_at ?? null,
+            discord_id: discordMap.get(normTag(entry.player_tag)) ?? null,
+          };
+        }),
       });
       return;
     }
@@ -1802,11 +1813,12 @@ async function handleCwlEntries(req: { method?: string; url: string; headers: Re
   try {
     const supabase = adminClient();
     if (method === 'GET') {
-      const { data, error } = await supabase
-        .from('cwl_entries_view')
-        .select('*')
-        .order('created_date', { ascending: true });
+      const [{ data, error }, { data: rawEntries }] = await Promise.all([
+        supabase.from('cwl_entries_view').select('*').order('created_date', { ascending: true }),
+        supabase.from('cwl_entries').select('id, status, current_clan, cwl_assigned_at'),
+      ]);
       if (error) throw new Error(error.message);
+      const rawById = new Map((rawEntries ?? []).map((row) => [row.id as string, row as { status?: string | null; current_clan?: string | null; cwl_assigned_at?: string | null }]));
       const entries = data ?? [];
       const lookup = new Set<string>();
       for (const entry of entries) {
@@ -1837,7 +1849,16 @@ async function handleCwlEntries(req: { method?: string; url: string; headers: Re
       send(res, 200, {
         ok: true,
         warning,
-        entries: entries.map((entry) => ({ ...entry, discord_id: discordMap.get(normTag(entry.player_tag)) ?? null })),
+        entries: entries.map((entry) => {
+          const extra = rawById.get(entry.id as string);
+          return {
+            ...entry,
+            status: entry.status ?? extra?.status ?? null,
+            current_clan: entry.current_clan ?? extra?.current_clan ?? null,
+            cwl_assigned_at: entry.cwl_assigned_at ?? extra?.cwl_assigned_at ?? null,
+            discord_id: discordMap.get(normTag(entry.player_tag)) ?? null,
+          };
+        }),
       });
       return;
     }
