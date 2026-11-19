@@ -1,10 +1,30 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, ArrowDown, ArrowUp, Check, ChevronDown, ListChecks, LoaderCircle, Pencil, RefreshCw, Search, Shield, Trash2, X } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  Copy,
+  ListChecks,
+  LoaderCircle,
+  Pencil,
+  RefreshCw,
+  Search,
+  Shield,
+  Swords,
+  Trash2,
+  UserCheck,
+  UserMinus,
+  Users,
+  X,
+} from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 
 type SortKey = 'cwl_clan' | 'home_clan' | 'war_weight';
 type SortDir = 'asc' | 'desc';
+type StatusFilter = 'all' | 'assigned' | 'unassigned';
 interface SortSpec { key: SortKey; dir: SortDir }
 
 const SORT_LABELS: Record<SortKey, string> = { cwl_clan: 'CWL Clan', home_clan: 'Home Clan', war_weight: 'War Weight' };
@@ -31,6 +51,48 @@ interface CwlClanOption {
 // Rendered on document.body so the page footer can never overlap a dialog.
 function Modal({ children }: { children: ReactNode }) {
   return createPortal(children, document.body);
+}
+
+function CopyableValue({
+  value,
+  label,
+  className = '',
+}: {
+  value: string;
+  label: string;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // Fallback if clipboard API fails
+    }
+  };
+
+  return (
+    <span className="group/copy inline-flex items-center gap-1.5 max-w-full">
+      <span className={`truncate ${className}`}>{value}</span>
+      <button
+        type="button"
+        onClick={(e) => void handleCopy(e)}
+        className={`inline-flex items-center justify-center w-6 h-6 rounded-md border transition-all duration-150 shrink-0 ${
+          copied
+            ? 'opacity-100 bg-emerald-500/20 border-emerald-500/40 text-emerald-300 scale-105'
+            : 'opacity-0 group-hover/copy:opacity-100 focus:opacity-100 bg-space-700/80 border-astral-600/40 text-astral-200 hover:text-white hover:bg-astral-600/30 hover:border-gold-400/40'
+        }`}
+        title={copied ? `Copied ${label}!` : `Copy ${label}`}
+        aria-label={copied ? `Copied ${label}` : `Copy ${label}`}
+      >
+        {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+      </button>
+    </span>
+  );
 }
 
 function ClanSelect({ value, options, onChange }: { value: string; options: CwlClanOption[]; onChange: (tag: string) => void }) {
@@ -120,10 +182,13 @@ interface CwlEntry {
   created_date: string;
 }
 
-function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+function formatDateParts(value: string): { date: string; time: string } | null {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return {
+    date: d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }),
+    time: d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+  };
 }
 
 export default function EntriesPage() {
@@ -141,6 +206,8 @@ export default function EntriesPage() {
   const [clanOptions, setClanOptions] = useState<CwlClanOption[]>([]);
   const [clanInput, setClanInput] = useState('');
   const [sortKeys, setSortKeys] = useState<SortSpec[]>([]);
+  const [clanFilter, setClanFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
   useEffect(() => {
     if (!supabase) return;
@@ -152,17 +219,34 @@ export default function EntriesPage() {
         setClanOptions(rows.sort((a, b) => (a.clan_name ?? '').localeCompare(b.clan_name ?? '')));
       });
   }, []);
-  const [clanFilter, setClanFilter] = useState('');
+
+  const clanBadgeByTag = useMemo(
+    () => new Map(clanOptions.map((c) => [c.clan_tag, c.badge_url])),
+    [clanOptions]
+  );
+
+  const totalSignups = entries.length;
+  const assignedCount = useMemo(
+    () => entries.filter((e) => !!(e.cwl_clan_tag || e.cwl_clan_name?.trim())).length,
+    [entries]
+  );
+  const unassignedCount = totalSignups - assignedCount;
+  const assignedPercent = totalSignups > 0 ? Math.round((assignedCount / totalSignups) * 100) : 0;
 
   const cwlClanOptions = [...new Set(entries.map((entry) => entry.cwl_clan_name).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b));
   const query = search.trim().toLowerCase().replace(/^#/, '');
   const matched = entries.filter((entry) => {
+    const isAssigned = !!(entry.cwl_clan_tag || entry.cwl_clan_name?.trim());
+    if (statusFilter === 'assigned' && !isAssigned) return false;
+    if (statusFilter === 'unassigned' && isAssigned) return false;
     if (clanFilter && entry.cwl_clan_name !== clanFilter) return false;
     if (!query) return true;
     return (
       entry.player_name.toLowerCase().includes(query) ||
       entry.player_tag.toLowerCase().replace(/^#/, '').includes(query) ||
-      (entry.discord_id ?? '').includes(query)
+      (entry.discord_id ?? '').includes(query) ||
+      (entry.notes ?? '').toLowerCase().includes(query) ||
+      (entry.home_clan ?? '').toLowerCase().includes(query)
     );
   });
 
@@ -274,156 +358,445 @@ export default function EntriesPage() {
     }
   };
 
+  const hasActiveFilters = Boolean(search.trim() || clanFilter || statusFilter !== 'all');
+
   return (
     <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-6">
-      <div className="flex items-end justify-between gap-4">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <ListChecks className="w-6 h-6 text-gold-400" />
-            <h2 className="font-display text-2xl font-bold text-white">CWL Entries</h2>
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-gold-400/20 to-astral-500/20 border border-gold-400/30 flex items-center justify-center shadow-lg shadow-gold-500/5">
+              <ListChecks className="w-5 h-5 text-gold-400" />
+            </div>
+            <div>
+              <h2 className="font-display text-2xl font-bold text-white tracking-wide">CWL Entries</h2>
+              <p className="text-sm text-astral-300/60">
+                Manage player sign-ups, clan placements, war weights, and notes.
+              </p>
+            </div>
           </div>
-          <p className="mt-1 text-sm text-astral-300/60">
-            Players signed up for CWL ({filtered.length === entries.length ? entries.length : `${filtered.length} of ${entries.length}`}).
-          </p>
         </div>
-        <button onClick={() => void load()} disabled={loading} className="astral-btn-ghost" title="Reload entries">
+        <button onClick={() => void load()} disabled={loading} className="astral-btn-ghost self-start sm:self-auto" title="Reload entries">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-astral-300/50" />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by name, tag or Discord ID..."
-            className="astral-input w-full pl-9"
-          />
-        </div>
-        <select value={clanFilter} onChange={(event) => setClanFilter(event.target.value)} className="astral-input sm:w-64" aria-label="Filter by CWL clan">
-          <option value="">All CWL clans</option>
-          {cwlClanOptions.map((name) => <option key={name} value={name}>{name}</option>)}
-        </select>
+      {/* Summary Stats Cards (Interactive Quick-Filters) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <button
+          type="button"
+          onClick={() => setStatusFilter('all')}
+          className={`astral-card p-4 text-left transition-all duration-200 relative overflow-hidden group ${
+            statusFilter === 'all'
+              ? 'border-gold-400/50 bg-gradient-to-br from-space-800/90 via-space-800/70 to-gold-500/10 ring-1 ring-gold-400/25 shadow-lg shadow-gold-500/5'
+              : 'hover:border-astral-500/40 hover:bg-space-700/40'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <span className="text-xs font-medium uppercase tracking-wider text-astral-300/70">Player Signups</span>
+              <div className="mt-1.5 flex items-baseline gap-2">
+                <span className="font-display text-3xl font-bold text-white tabular-nums">
+                  {loading ? '—' : totalSignups}
+                </span>
+                <span className="text-xs text-astral-300/50">total registered</span>
+              </div>
+            </div>
+            <div className="w-11 h-11 rounded-xl bg-astral-500/15 border border-astral-400/25 flex items-center justify-center text-astral-300 group-hover:scale-105 transition-transform">
+              <Users className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-center justify-between text-[11px] text-astral-300/60">
+            <span>{cwlClanOptions.length} active CWL clan{cwlClanOptions.length === 1 ? '' : 's'}</span>
+            {statusFilter === 'all' && <span className="text-gold-300 font-medium">Showing all</span>}
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusFilter((cur) => (cur === 'assigned' ? 'all' : 'assigned'))}
+          className={`astral-card p-4 text-left transition-all duration-200 relative overflow-hidden group ${
+            statusFilter === 'assigned'
+              ? 'border-emerald-400/50 bg-gradient-to-br from-space-800/90 via-space-800/70 to-emerald-500/10 ring-1 ring-emerald-400/25 shadow-lg shadow-emerald-500/5'
+              : 'hover:border-emerald-500/30 hover:bg-space-700/40'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <span className="text-xs font-medium uppercase tracking-wider text-emerald-300/80">Assigned Players</span>
+              <div className="mt-1.5 flex items-baseline gap-2">
+                <span className="font-display text-3xl font-bold text-emerald-300 tabular-nums">
+                  {loading ? '—' : assignedCount}
+                </span>
+                {!loading && totalSignups > 0 && (
+                  <span className="text-xs font-medium text-emerald-400/70">({assignedPercent}%)</span>
+                )}
+              </div>
+            </div>
+            <div className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-400/25 flex items-center justify-center text-emerald-300 group-hover:scale-105 transition-transform">
+              <UserCheck className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <div className="h-1.5 w-full rounded-full bg-space-900/80 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300 transition-all duration-500"
+                style={{ width: `${loading ? 0 : assignedPercent}%` }}
+              />
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusFilter((cur) => (cur === 'unassigned' ? 'all' : 'unassigned'))}
+          className={`astral-card p-4 text-left transition-all duration-200 relative overflow-hidden group ${
+            statusFilter === 'unassigned'
+              ? 'border-amber-400/50 bg-gradient-to-br from-space-800/90 via-space-800/70 to-amber-500/10 ring-1 ring-amber-400/25 shadow-lg shadow-amber-500/5'
+              : 'hover:border-amber-500/30 hover:bg-space-700/40'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <span className="text-xs font-medium uppercase tracking-wider text-amber-300/80">Unassigned Players</span>
+              <div className="mt-1.5 flex items-baseline gap-2">
+                <span className="font-display text-3xl font-bold text-amber-300 tabular-nums">
+                  {loading ? '—' : unassignedCount}
+                </span>
+                <span className="text-xs text-astral-300/50">awaiting placement</span>
+              </div>
+            </div>
+            <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-400/25 flex items-center justify-center text-amber-300 group-hover:scale-105 transition-transform">
+              <UserMinus className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-center justify-between text-[11px] text-astral-300/60">
+            <span>{statusFilter === 'unassigned' ? 'Filtered to unassigned' : 'Click to filter unassigned'}</span>
+            {!loading && totalSignups > 0 && (
+              <span className="text-amber-300/80 font-medium">{100 - assignedPercent}% remaining</span>
+            )}
+          </div>
+        </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs uppercase tracking-wide text-astral-300/60 mr-1">Sort by</span>
-        {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => {
-          const position = sortKeys.findIndex((item) => item.key === key);
-          const spec = position >= 0 ? sortKeys[position] : null;
-          return (
-            <span
-              key={key}
-              className={`inline-flex items-center rounded-full border text-sm transition ${spec ? 'border-gold-400/50 bg-gold-500/10 text-gold-200' : 'border-astral-700/40 text-astral-200 hover:bg-white/5'}`}
-            >
-              <button
-                type="button"
-                onClick={() => toggleSort(key)}
-                className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5"
-                title={spec ? (position === 0 ? 'Click to reverse direction' : 'Click to make this the primary sort') : 'Click to sort'}
-              >
-                {spec && sortKeys.length > 1 && (
-                  <span className="w-4 h-4 rounded-full bg-gold-400/20 text-[10px] font-bold flex items-center justify-center">{position + 1}</span>
-                )}
-                {SORT_LABELS[key]}
-                {spec && (spec.dir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />)}
-                {spec && <span className="text-xs opacity-70">{SORT_DIR_TEXT[key][spec.dir]}</span>}
-              </button>
-              {spec && (
-                <button type="button" onClick={() => removeSort(key)} className="pr-2 pl-0.5 py-1.5 opacity-70 hover:opacity-100" title={`Remove ${SORT_LABELS[key]} sort`} aria-label={`Remove ${SORT_LABELS[key]} sort`}>
+      {/* Unified Controls & Table Container */}
+      <section className="astral-card overflow-hidden shadow-2xl shadow-space-950/60">
+        {/* Search, Filter & Sort Toolbar */}
+        <div className="p-4 sm:p-5 border-b border-astral-700/25 bg-space-900/30 space-y-3.5">
+          <div className="flex flex-col lg:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-astral-300/50 pointer-events-none" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by player name, #tag, Discord ID, home clan, or notes..."
+                className="astral-input w-full pl-10 pr-9 py-2 text-sm"
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-astral-300/60 hover:text-white rounded-md"
+                  aria-label="Clear search"
+                >
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
-            </span>
-          );
-        })}
-        {sortKeys.length > 0 && (
-          <button type="button" onClick={() => setSortKeys([])} className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2 ml-1">Clear sort</button>
-        )}
-        {sortKeys.length > 1 && (
-          <span className="text-xs text-astral-300/50 ml-1">
-            Priority: {sortKeys.map((item) => SORT_LABELS[item.key]).join(' → ')}
-          </span>
-        )}
-      </div>
+            </div>
 
-      {(error || message) && (
-        <div className={`p-4 rounded-xl border text-sm flex items-start gap-3 ${error ? 'bg-rose-500/10 border-rose-500/30 text-rose-200' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'}`}>
-          {error && <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />}
-          <p className="flex-1">{error || message}</p>
-          <button
-            type="button"
-            onClick={() => { setError(null); setMessage(null); }}
-            className="p-1 rounded-lg opacity-60 hover:opacity-100 hover:bg-white/10 transition shrink-0"
-            title="Dismiss"
-            aria-label="Dismiss notification"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5">
+              <select
+                value={clanFilter}
+                onChange={(event) => setClanFilter(event.target.value)}
+                className="astral-input py-2 text-sm sm:w-56"
+                aria-label="Filter by CWL clan"
+              >
+                <option value="">All CWL clans</option>
+                {cwlClanOptions.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
 
-      {loading ? (
-        <div className="astral-card p-12 text-center text-astral-300/60">
-          <LoaderCircle className="w-6 h-6 animate-spin mx-auto" />
-          <p className="mt-3 text-sm">Loading entries...</p>
-        </div>
-      ) : entries.length === 0 ? (
-        <div className="astral-card p-12 text-center">
-          <ListChecks className="w-8 h-8 mx-auto text-astral-300/40" />
-          <p className="mt-3 text-astral-200">No CWL sign-ups yet.</p>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="astral-card p-12 text-center">
-          <Search className="w-8 h-8 mx-auto text-astral-300/40" />
-          <p className="mt-3 text-astral-200">No entries match your filters.</p>
-        </div>
-      ) : (
-        <div className="astral-card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-astral-700/20 text-astral-300/60">
-                <th className="px-4 py-3 text-left font-medium">#</th>
-                <th className="px-4 py-3 text-left font-medium">Player Name</th>
-                <th className="px-4 py-3 text-left font-medium">Player Tag</th>
-                <th className="px-4 py-3 text-left font-medium">Discord ID</th>
-                <th className="px-4 py-3 text-left font-medium">Home Clan</th>
-                <th className="px-4 py-3 text-left font-medium">CWL Clan</th>
-                <th className="px-4 py-3 text-right font-medium">War Weight</th>
-                <th className="px-4 py-3 text-left font-medium">Notes</th>
-                <th className="px-4 py-3 text-left font-medium">Signed up at</th>
-                <th className="px-4 py-3 text-right font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((entry, index) => (
-                <tr key={entry.id} className="border-b border-astral-700/10 text-astral-100">
-                  <td className="px-4 py-3 text-astral-300/60">{index + 1}</td>
-                  <td className="px-4 py-3 font-medium text-white">{entry.player_name}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-gold-300">{entry.player_tag}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{entry.discord_id || '—'}</td>
-                  <td className="px-4 py-3">{entry.home_clan || '—'}</td>
-                  <td className="px-4 py-3">{entry.cwl_clan_name || '—'}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{entry.war_weight != null ? entry.war_weight.toLocaleString() : '—'}</td>
-                  <td className="px-4 py-3 max-w-xs truncate" title={entry.notes ?? ''}>{entry.notes || '—'}</td>
-                  <td className="px-4 py-3 whitespace-nowrap text-astral-300/70">{formatDate(entry.created_date)}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => openEdit(entry)} className="p-2 text-astral-300/70 hover:text-white hover:bg-white/10 rounded-lg" title="Edit">
-                        <Pencil className="w-4 h-4" />
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch('');
+                    setClanFilter('');
+                    setStatusFilter('all');
+                  }}
+                  className="astral-btn-ghost py-2 px-3 text-xs shrink-0"
+                  title="Reset all filters"
+                >
+                  <X className="w-3.5 h-3.5" /> Reset
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-0.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-astral-300/50 mr-1">Sort by</span>
+              {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => {
+                const position = sortKeys.findIndex((item) => item.key === key);
+                const spec = position >= 0 ? sortKeys[position] : null;
+                return (
+                  <span
+                    key={key}
+                    className={`inline-flex items-center rounded-lg border text-xs transition ${
+                      spec
+                        ? 'border-gold-400/50 bg-gold-500/15 text-gold-200 shadow-sm shadow-gold-500/5'
+                        : 'border-astral-700/40 bg-space-800/50 text-astral-200 hover:bg-white/5 hover:border-astral-600/50'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(key)}
+                      className="inline-flex items-center gap-1.5 pl-2.5 pr-2 py-1"
+                      title={spec ? (position === 0 ? 'Click to reverse direction' : 'Click to make this the primary sort') : 'Click to sort'}
+                    >
+                      {spec && sortKeys.length > 1 && (
+                        <span className="w-4 h-4 rounded-full bg-gold-400/25 text-[10px] font-bold flex items-center justify-center">
+                          {position + 1}
+                        </span>
+                      )}
+                      {SORT_LABELS[key]}
+                      {spec && (spec.dir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+                      {spec && <span className="text-[11px] opacity-75">{SORT_DIR_TEXT[key][spec.dir]}</span>}
+                    </button>
+                    {spec && (
+                      <button
+                        type="button"
+                        onClick={() => removeSort(key)}
+                        className="pr-2 pl-0.5 py-1 opacity-70 hover:opacity-100"
+                        title={`Remove ${SORT_LABELS[key]} sort`}
+                        aria-label={`Remove ${SORT_LABELS[key]} sort`}
+                      >
+                        <X className="w-3 h-3" />
                       </button>
-                      <button onClick={() => { setPendingDelete(entry); setError(null); setMessage(null); }} className="p-2 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded-lg" title="Delete">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
+                    )}
+                  </span>
+                );
+              })}
+              {sortKeys.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSortKeys([])}
+                  className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2 ml-1"
+                >
+                  Clear sort
+                </button>
+              )}
+              {sortKeys.length > 1 && (
+                <span className="text-[11px] text-astral-300/50 ml-1">
+                  Priority: {sortKeys.map((item) => SORT_LABELS[item.key]).join(' → ')}
+                </span>
+              )}
+            </div>
+
+            <div className="text-xs text-astral-300/60">
+              Showing <span className="font-semibold text-white">{filtered.length}</span> of{' '}
+              <span className="font-semibold text-white">{entries.length}</span> entries
+            </div>
+          </div>
+        </div>
+
+        {(error || message) && (
+          <div className={`mx-4 mt-4 p-3.5 rounded-xl border text-sm flex items-start gap-3 ${error ? 'bg-rose-500/10 border-rose-500/30 text-rose-200' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'}`}>
+            {error && <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+            <p className="flex-1">{error || message}</p>
+            <button
+              type="button"
+              onClick={() => { setError(null); setMessage(null); }}
+              className="p-1 rounded-lg opacity-60 hover:opacity-100 hover:bg-white/10 transition shrink-0"
+              title="Dismiss"
+              aria-label="Dismiss notification"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Table Content */}
+        {loading ? (
+          <div className="p-16 text-center text-astral-300/60">
+            <LoaderCircle className="w-7 h-7 animate-spin mx-auto text-gold-400" />
+            <p className="mt-3 text-sm">Loading CWL entries...</p>
+          </div>
+        ) : entries.length === 0 ? (
+          <div className="p-16 text-center">
+            <ListChecks className="w-10 h-10 mx-auto text-astral-300/30" />
+            <p className="mt-3 text-base font-medium text-astral-100">No CWL sign-ups yet</p>
+            <p className="mt-1 text-xs text-astral-300/50">Players who sign up for CWL will appear here.</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-16 text-center">
+            <Search className="w-10 h-10 mx-auto text-astral-300/30" />
+            <p className="mt-3 text-base font-medium text-astral-100">No entries match your filters</p>
+            <p className="mt-1 text-xs text-astral-300/50">Try clearing your search query or switching filter tabs.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-astral-700/25 bg-space-900/50 text-[11px] font-semibold uppercase tracking-wider text-astral-300/60">
+                  <th className="pl-4 pr-2 py-3.5 text-left w-10">#</th>
+                  <th className="px-3 py-3.5 text-left min-w-[10.5rem]">Player</th>
+                  <th className="px-3 py-3.5 text-left min-w-[11.5rem]">Discord ID</th>
+                  <th className="px-3 py-3.5 text-left min-w-[8.5rem]">Home Clan</th>
+                  <th className="px-3 py-3.5 text-left min-w-[10.5rem]">CWL Clan</th>
+                  <th className="px-3 py-3.5 text-right whitespace-nowrap min-w-[7rem]">War Weight</th>
+                  <th className="px-3 py-3.5 text-left min-w-[14rem] max-w-[24rem]">Notes</th>
+                  <th className="px-3 py-3.5 text-left whitespace-nowrap">Signed Up</th>
+                  <th className="pl-2 pr-4 py-3.5 text-right whitespace-nowrap w-24">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody className="divide-y divide-astral-700/15">
+                {filtered.map((entry, index) => {
+                  const badgeUrl = entry.cwl_clan_tag ? clanBadgeByTag.get(entry.cwl_clan_tag) : null;
+                  const dateParts = formatDateParts(entry.created_date);
+                  const hasCwlClan = Boolean(entry.cwl_clan_name?.trim());
+                  const hasHomeClan = Boolean(entry.home_clan?.trim());
+                  const hasNotes = Boolean(entry.notes?.trim());
+
+                  return (
+                    <tr
+                      key={entry.id}
+                      className="group align-top transition-colors hover:bg-astral-600/[0.07]"
+                    >
+                      {/* # */}
+                      <td className="pl-4 pr-2 py-3.5 text-xs font-mono text-astral-300/50 tabular-nums">
+                        {index + 1}
+                      </td>
+
+                      {/* Player (Name + Copyable Tag) */}
+                      <td className="px-3 py-3.5">
+                        <div className="font-semibold text-white leading-snug break-words">
+                          {entry.player_name}
+                        </div>
+                        <div className="mt-0.5">
+                          <CopyableValue
+                            value={entry.player_tag}
+                            label="Player Tag"
+                            className="font-mono text-xs text-gold-300/90"
+                          />
+                        </div>
+                      </td>
+
+                      {/* Discord ID */}
+                      <td className="px-3 py-3.5">
+                        {entry.discord_id ? (
+                          <CopyableValue
+                            value={entry.discord_id}
+                            label="Discord ID"
+                            className="font-mono text-xs text-astral-200/90 bg-space-900/60 border border-astral-700/30 px-2 py-0.5 rounded-md"
+                          />
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] text-astral-300/35 bg-space-900/30 border border-astral-700/15 italic">
+                            Not linked
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Home Clan */}
+                      <td className="px-3 py-3.5">
+                        {hasHomeClan ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-astral-100 bg-astral-500/10 border border-astral-500/20 px-2.5 py-1 rounded-lg leading-snug break-words">
+                            {entry.home_clan}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] text-astral-300/35 italic">
+                            No home clan
+                          </span>
+                        )}
+                      </td>
+
+                      {/* CWL Clan */}
+                      <td className="px-3 py-3.5">
+                        {hasCwlClan ? (
+                          <span className="inline-flex items-center gap-2 text-xs font-medium text-emerald-200 bg-emerald-500/10 border border-emerald-400/25 px-2.5 py-1 rounded-lg leading-snug">
+                            {badgeUrl ? (
+                              <img src={badgeUrl} alt="" className="w-4 h-4 object-contain shrink-0" />
+                            ) : (
+                              <Shield className="w-3.5 h-3.5 text-emerald-300/80 shrink-0" />
+                            )}
+                            <span className="break-words">{entry.cwl_clan_name}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-300/80 bg-amber-500/10 border border-amber-400/20 px-2.5 py-1 rounded-lg">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400/80" />
+                            Unassigned
+                          </span>
+                        )}
+                      </td>
+
+                      {/* War Weight */}
+                      <td className="px-3 py-3.5 text-right whitespace-nowrap">
+                        {entry.war_weight != null && entry.war_weight > 0 ? (
+                          <span className="inline-flex items-center justify-end gap-1.5 font-mono text-xs font-semibold text-white bg-space-900/60 border border-astral-700/30 px-2.5 py-1 rounded-lg tabular-nums">
+                            <Swords className="w-3 h-3 text-gold-400/80 shrink-0" />
+                            {entry.war_weight.toLocaleString()}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] text-astral-300/35 italic">
+                            Not set
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Notes (Full Multi-line Expansion!) */}
+                      <td className="px-3 py-3.5 min-w-[14rem] max-w-[24rem]">
+                        {hasNotes ? (
+                          <div className="text-xs text-astral-100/90 leading-relaxed whitespace-pre-wrap break-words bg-space-900/40 border border-astral-700/25 rounded-lg px-2.5 py-1.5">
+                            {entry.notes}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-astral-300/30 italic">No notes</span>
+                        )}
+                      </td>
+
+                      {/* Signed up at */}
+                      <td className="px-3 py-3.5 whitespace-nowrap">
+                        {dateParts ? (
+                          <div className="leading-tight">
+                            <div className="text-xs text-astral-200/85 font-medium">{dateParts.date}</div>
+                            <div className="text-[11px] text-astral-300/50 mt-0.5">{dateParts.time}</div>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-astral-300/35 italic">Unknown</span>
+                        )}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="pl-2 pr-4 py-3.5 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => openEdit(entry)}
+                            className="p-2 text-astral-300/70 hover:text-gold-300 hover:bg-gold-500/10 border border-transparent hover:border-gold-400/25 rounded-lg transition"
+                            title={`Edit ${entry.player_name}`}
+                            aria-label={`Edit ${entry.player_name}`}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => { setPendingDelete(entry); setError(null); setMessage(null); }}
+                            className="p-2 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/25 rounded-lg transition"
+                            title={`Remove ${entry.player_name}`}
+                            aria-label={`Remove ${entry.player_name}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {editing && (
         <Modal>
