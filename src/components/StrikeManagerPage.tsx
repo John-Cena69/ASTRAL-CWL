@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Check,
@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 import type { ClanRosterPlayer } from '@/types';
+import StrikePlayerPicker from '@/components/StrikePlayerPicker';
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
@@ -110,15 +111,16 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
   } | null>(null);
 
   // Form state for adding a strike to batch
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedPlayer, setSelectedPlayer] = useState<ClanRosterPlayer | null>(null);
+  const [selectedPlayers, setSelectedPlayers] = useState<ClanRosterPlayer[]>([]);
+  const [showPicker, setShowPicker] = useState(false);
+  const [savingBatch, setSavingBatch] = useState(0);
+  const savingRef = useRef(0);
   const [strikeReason, setStrikeReason] = useState('');
   const [strikeValue, setStrikeValue] = useState('');
   const [strikeNote, setStrikeNote] = useState('');
   const [strikeDate, setStrikeDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [isWarning, setIsWarning] = useState(false);
   const [showReasonDropdown, setShowReasonDropdown] = useState(false);
-  const [showPlayerDropdown, setShowPlayerDropdown] = useState(false);
 
   // Custom override edit state (per-reason pending text/value edits)
   const [customOverrideEdits, setCustomOverrideEdits] = useState<Record<string, { text: string; val: string }>>({});
@@ -194,12 +196,12 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     }
   };
 
-  const loadPending = async () => {
+  const loadPending = async (silent = false) => {
     if (!supabase) {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
@@ -263,17 +265,12 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     return Array.from(reasonMap.values()).filter((r) => r.enabled);
   }, [globalReasons, overrides, customReasons]);
 
-  // Filtered roster based on search query
-  const filteredRoster = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return roster;
-    return roster.filter(
-      (p) =>
-        p.player_name.toLowerCase().includes(q) ||
-        p.player_tag.toLowerCase().includes(q) ||
-        (p.discord_id && p.discord_id.toLowerCase().includes(q))
-    );
-  }, [roster, searchQuery]);
+  // How many strikes each player already has waiting in the batch (shown in the picker).
+  const pendingCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of pendingStrikes) counts.set(s.player_tag, (counts.get(s.player_tag) ?? 0) + 1);
+    return counts;
+  }, [pendingStrikes]);
 
   // Filtered reasons based on what's typed in the Reason box
   const filteredReasons = useMemo(() => {
@@ -281,10 +278,6 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     if (!q) return availableReasons;
     return availableReasons.filter((r) => r.text.toLowerCase().includes(q));
   }, [availableReasons, strikeReason]);
-
-  const handleSelectPlayer = (player: ClanRosterPlayer) => {
-    setSelectedPlayer(player);
-  };
 
   const handleReasonSelect = (reasonText: string) => {
     const reason = availableReasons.find((r) => r.text === reasonText);
@@ -296,12 +289,12 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
 
   const handleAddToBatch = async () => {
     if (!supabase) return;
-    if (!selectedPlayer) {
-      setError('Select a player first.');
+    if (selectedPlayers.length === 0) {
+      setError('Choose at least one player first.');
       return;
     }
     const val = parseFloat(strikeValue);
-    if (!strikeValue.trim() || isNaN(val)) {
+    if (!isWarning && (!strikeValue.trim() || isNaN(val))) {
       setError('Enter a valid strike value.');
       return;
     }
@@ -315,16 +308,28 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
     }
 
     const finalValue = isWarning ? 0 : val;
-
-    const newStrike = {
-      player_tag: selectedPlayer.player_tag,
-      player_name: selectedPlayer.player_name,
-      discord_id: selectedPlayer.discord_id ?? null,
+    const newStrikes = selectedPlayers.map((player) => ({
+      player_tag: player.player_tag,
+      player_name: player.player_name,
+      discord_id: player.discord_id ?? null,
       value: finalValue,
       reason: strikeReason.trim(),
       note: strikeNote.trim(),
       issued_date: strikeDate,
-    };
+    }));
+
+    // Show the rows straight away (id = null marks them as "saving"), then reset the form
+    // so the next strike can be prepared while this one saves in the background.
+    setPendingStrikes((prev) => [...newStrikes.map((s) => ({ ...s, id: null })), ...prev]);
+    setSelectedPlayers([]);
+    setStrikeValue('');
+    setStrikeReason('');
+    setStrikeNote('');
+    setIsWarning(false);
+    setError(null);
+    setNotice(null);
+    savingRef.current += 1;
+    setSavingBatch(savingRef.current);
 
     try {
       const { data: session } = await supabase.auth.getSession();
@@ -335,7 +340,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ clan_tag: clanTag, strikes: [newStrike] }),
+        body: JSON.stringify({ clan_tag: clanTag, strikes: newStrikes }),
       });
       const body = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -343,22 +348,16 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
       };
       if (!response.ok) throw new Error(body.error || `Failed to add strike (HTTP ${response.status}).`);
       if (!body.ok) throw new Error(body.error || 'Failed to add strike.');
+      setNotice(`Added ${newStrikes.length} strike${newStrikes.length === 1 ? '' : 's'} to the batch.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add strike.');
-      return;
+    } finally {
+      savingRef.current -= 1;
+      setSavingBatch(savingRef.current);
+      // Once every in-flight save has landed, reload so rows get real ids (needed for edit/remove)
+      // — or disappear if a save failed.
+      if (savingRef.current === 0) await loadPending(true);
     }
-
-    // Reload from server so rows have real ids (needed for edit/remove)
-    await loadPending();
-
-    setSelectedPlayer(null);
-    setSearchQuery('');
-    setStrikeValue('');
-    setStrikeReason('');
-    setStrikeNote('');
-    setStrikeDate(new Date().toISOString().split('T')[0]);
-    setIsWarning(false);
-    setError(null);
   };
 
   const authHeaders = async (): Promise<Record<string, string>> => {
@@ -652,74 +651,61 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
 
       {/* === Issue Strike Batch Form === */}
       <section className="astral-card overflow-hidden">
-        <div className="px-6 py-4 border-b border-astral-700/30">
-          <h3 className="font-semibold text-astral-100">Issue Strike (Add to Batch)</h3>
-          <p className="mt-1 text-sm text-astral-300/60">
-            Select a player, set strike details, then add to batch. Confirm all at once below.
-          </p>
+        <div className="px-6 py-4 border-b border-astral-700/30 flex items-center justify-between gap-4">
+          <div>
+            <h3 className="font-semibold text-astral-100">Issue Strike (Add to Batch)</h3>
+            <p className="mt-1 text-sm text-astral-300/60">
+              Select one or more players, set strike details, then add to batch. Confirm all at once below.
+            </p>
+          </div>
+          {savingBatch > 0 && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-astral-300/60 shrink-0" aria-live="polite">
+              <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> Saving to batch...
+            </span>
+          )}
         </div>
         <div className="p-6 space-y-4">
           <div className="flex flex-col gap-2">
-            <label className="text-xs text-astral-300/60 uppercase tracking-wide">Player</label>
-            <div className="relative">
-              <input
-                type="text"
-                value={selectedPlayer ? selectedPlayer.player_name : searchQuery}
-                onChange={(e) => {
-                  setSelectedPlayer(null); // typing starts a new search
-                  setSearchQuery(e.target.value);
-                  setShowPlayerDropdown(true);
-                }}
-                onFocus={() => setShowPlayerDropdown(true)}
-                onBlur={() => setShowPlayerDropdown(false)}
-                placeholder="Search player by name, tag, or Discord..."
-                className="astral-input w-full text-sm"
-              />
-              {showPlayerDropdown && (
-                <div className="absolute left-0 right-0 top-full z-20 mt-1 bg-space-800 border border-astral-700/30 rounded-xl shadow-xl max-h-48 overflow-y-auto">
-                  {filteredRoster.length === 0 ? (
-                    <div className="px-4 py-2.5 text-xs text-astral-300/40 italic">No matching players</div>
-                  ) : (
-                    filteredRoster.map((p) => (
-                      <div
-                        key={p.player_tag}
-                        onMouseDown={(e) => {
-                          e.preventDefault(); // keep focus so blur doesn't race the click
-                          handleSelectPlayer(p);
-                          setSearchQuery('');
-                          setShowPlayerDropdown(false);
-                        }}
-                        className={`px-4 py-2.5 text-sm cursor-pointer hover:bg-astral-700/40 flex items-center gap-2 ${selectedPlayer?.player_tag === p.player_tag ? 'bg-gold-500/20 border-l-2 border-gold-400' : ''}`}
-                      >
-                        {selectedPlayer?.player_tag === p.player_tag && (
-                          <Check className="w-3.5 h-3.5 text-gold-400 flex-shrink-0" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className="text-astral-100 font-medium truncate">{p.player_name}</div>
-                          <div className="text-xs text-astral-300/50 truncate">
-                            {p.player_tag} {p.discord_id ? `| ${p.discord_id}` : ''}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+            <label className="text-xs text-astral-300/60 uppercase tracking-wide">Players</label>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowPicker(true)}
+                className="astral-btn-ghost"
+              >
+                <UserPlus className="w-4 h-4" />
+                {selectedPlayers.length === 0 ? 'Choose players...' : `Choose players (${selectedPlayers.length} selected)`}
+              </button>
+              {selectedPlayers.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedPlayers([])}
+                  className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2"
+                >
+                  Clear all
+                </button>
               )}
             </div>
-            {selectedPlayer && (
-              <div className="flex items-center gap-2 pt-1">
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-xs text-emerald-300">Selected: {selectedPlayer.player_name}</span>
-                <button
-                  onClick={() => {
-                    setSelectedPlayer(null);
-                    setSearchQuery('');
-                  }}
-                  className="p-1 text-rose-300/70 hover:text-rose-200"
-                  title="Clear selection"
-                >
-                  <X className="w-3 h-3" />
-                </button>
+            {selectedPlayers.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {selectedPlayers.map((p) => (
+                  <span
+                    key={p.player_tag}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-gold-400/30 bg-gold-500/10 pl-2.5 pr-1 py-0.5 text-xs text-gold-100"
+                  >
+                    <span className="font-medium">{p.player_name}</span>
+                    <span className="font-mono text-gold-300/70">{p.player_tag}</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPlayers((prev) => prev.filter((item) => item.player_tag !== p.player_tag))}
+                      className="p-0.5 rounded-full hover:bg-white/10"
+                      title={`Remove ${p.player_name}`}
+                      aria-label={`Remove ${p.player_name}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
               </div>
             )}
           </div>
@@ -813,15 +799,29 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
           </div>
 
           <button
-            onClick={handleAddToBatch}
-            disabled={issuing || !selectedPlayer || !strikeValue.trim() || !strikeReason.trim() || !strikeDate.trim()}
+            onClick={() => void handleAddToBatch()}
+            disabled={issuing || selectedPlayers.length === 0 || (!isWarning && !strikeValue.trim()) || !strikeReason.trim() || !strikeDate.trim()}
             className="astral-btn-primary w-full sm:w-auto"
           >
-            {issuing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            {issuing ? 'Adding...' : 'Add to Batch'}
+            <Plus className="w-4 h-4" />
+            {selectedPlayers.length > 1 ? `Add ${selectedPlayers.length} Strikes to Batch` : 'Add to Batch'}
           </button>
         </div>
       </section>
+
+      {showPicker && (
+        <StrikePlayerPicker
+          clanName={clanName}
+          roster={roster}
+          initialSelected={selectedPlayers.map((p) => p.player_tag)}
+          pendingCounts={pendingCounts}
+          onClose={() => setShowPicker(false)}
+          onDone={(players) => {
+            setSelectedPlayers(players);
+            setShowPicker(false);
+          }}
+        />
+      )}
 
       {/* === Clear Pending Confirmation Modal === */}
       {pendingClear && (
