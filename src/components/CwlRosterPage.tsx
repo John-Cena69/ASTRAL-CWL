@@ -99,7 +99,18 @@ function AddPlayersModal({ clanLabel, badgeUrl, slotsLeft, rosterSize, entries, 
       if (event.key === 'Escape') onCloseRef.current();
     };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    // Lock page scroll while the window is open (keep layout from shifting when the scrollbar disappears).
+    const { body, documentElement } = document;
+    const prevOverflow = body.style.overflow;
+    const prevPadding = body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - documentElement.clientWidth;
+    body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) body.style.paddingRight = `${scrollbarWidth}px`;
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      body.style.overflow = prevOverflow;
+      body.style.paddingRight = prevPadding;
+    };
   }, []);
 
   const byId = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries]);
@@ -209,7 +220,7 @@ function AddPlayersModal({ clanLabel, badgeUrl, slotsLeft, rosterSize, entries, 
           </div>
 
           {/* Player list */}
-          <div className="flex-1 min-h-[12rem] overflow-y-auto px-3 py-3">
+          <div className="flex-1 min-h-[12rem] overflow-y-auto overscroll-contain px-3 py-3">
             {available.length === 0 && alreadyAssigned.length === 0 ? (
               <div className="py-12 text-center">
                 <Users className="w-8 h-8 mx-auto text-astral-300/30" />
@@ -290,7 +301,7 @@ function AddPlayersModal({ clanLabel, badgeUrl, slotsLeft, rosterSize, entries, 
           {/* Selected tray + footer */}
           <div className="border-t border-astral-700/20 bg-space-900/40 px-5 py-4 space-y-3">
             {selected.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+              <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto overscroll-contain">
                 {selected.map((id) => {
                   const entry = byId.get(id);
                   if (!entry) return null;
