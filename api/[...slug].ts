@@ -1408,6 +1408,185 @@ async function getActorName(req: { headers: Record<string, string | string[] | u
 
 const CWL_DISCORD_GUILD_ID = '1519252846648889405';
 
+// GET /api/discord-profile — fetch live Discord nickname, @username, Discord ID, and avatar via Discord Bot API
+async function handleDiscordProfile(
+  req: { method?: string; url: string; headers: Record<string, string | string[] | undefined> },
+  res: { status: (code: number) => { json: (body: unknown) => void } },
+  auth: AuthResult
+): Promise<void> {
+  if (req.method && req.method !== 'GET') {
+    send(res, 405, { ok: false, error: 'Use GET.' });
+    return;
+  }
+  if (!auth.ok) {
+    send(res, 401, { ok: false, error: 'Unauthorized.' });
+    return;
+  }
+
+  const authHeader = getHeader(req, 'authorization');
+  const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!jwt) {
+    send(res, 401, { ok: false, error: 'Missing bearer token.' });
+    return;
+  }
+
+  try {
+    const supabase = adminClient();
+    const { data, error: userErr } = await supabase.auth.getUser(jwt);
+    if (userErr || !data?.user) {
+      send(res, 401, { ok: false, error: userErr?.message || 'Could not resolve user.' });
+      return;
+    }
+
+    const user = data.user;
+    const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+    const discordIdentity = user.identities?.find((id) => id.provider === 'discord');
+    const idData = (discordIdentity?.identity_data ?? {}) as Record<string, unknown>;
+    const customClaims = (meta.custom_claims ?? idData.custom_claims ?? {}) as Record<string, unknown>;
+
+    const discordId = String(
+      meta.provider_id ??
+        discordIdentity?.id ??
+        idData.provider_id ??
+        idData.sub ??
+        meta.sub ??
+        ''
+    ).trim();
+
+    const stripDiscrim = (val: unknown): string =>
+      typeof val === 'string' ? val.trim().replace(/#0$/, '') : '';
+
+    let username =
+      stripDiscrim(meta.user_name) ||
+      stripDiscrim(idData.username) ||
+      stripDiscrim(meta.name) ||
+      '';
+    let nickname =
+      (typeof meta.discord_nickname === 'string' && meta.discord_nickname.trim()) ||
+      (typeof customClaims.global_name === 'string' && customClaims.global_name.trim()) ||
+      (typeof meta.full_name === 'string' && meta.full_name.trim()) ||
+      (typeof idData.full_name === 'string' && idData.full_name.trim()) ||
+      username;
+    let avatarUrl =
+      (typeof meta.avatar_url === 'string' && meta.avatar_url.trim()) ||
+      (typeof idData.avatar_url === 'string' && idData.avatar_url.trim()) ||
+      null;
+
+    const botToken = (process.env.DISCORD_BOT_TOKEN ?? '').trim();
+    const guildId = (process.env.DISCORD_GUILD_ID ?? '').trim() || CWL_DISCORD_GUILD_ID;
+
+    if (botToken && /^\d{15,22}$/.test(discordId)) {
+      let resolvedFromDiscord = false;
+
+      // 1. Try Guild Member endpoint first (gives server nickname + guild avatar + user object)
+      if (guildId) {
+        try {
+          const memberResp = await fetch(
+            `https://discord.com/api/v10/guilds/${guildId}/members/${discordId}`,
+            { headers: { Authorization: `Bot ${botToken}` } }
+          );
+          if (memberResp.ok) {
+            const member = (await memberResp.json()) as Record<string, unknown>;
+            const dUser = (member.user ?? {}) as Record<string, unknown>;
+            const liveUsername = stripDiscrim(dUser.username);
+            const liveGlobalName =
+              typeof dUser.global_name === 'string' && dUser.global_name.trim()
+                ? dUser.global_name.trim()
+                : null;
+            const liveNick =
+              typeof member.nick === 'string' && member.nick.trim()
+                ? member.nick.trim()
+                : null;
+
+            if (liveUsername) username = liveUsername;
+            nickname = liveNick || liveGlobalName || liveUsername || nickname;
+
+            const memberAvatar =
+              typeof member.avatar === 'string' && member.avatar.trim()
+                ? member.avatar.trim()
+                : null;
+            const userAvatar =
+              typeof dUser.avatar === 'string' && dUser.avatar.trim()
+                ? dUser.avatar.trim()
+                : null;
+
+            if (memberAvatar) {
+              const ext = memberAvatar.startsWith('a_') ? 'gif' : 'png';
+              avatarUrl = `https://cdn.discordapp.com/guilds/${guildId}/users/${discordId}/avatars/${memberAvatar}.${ext}?size=256`;
+            } else if (userAvatar) {
+              const ext = userAvatar.startsWith('a_') ? 'gif' : 'png';
+              avatarUrl = `https://cdn.discordapp.com/avatars/${discordId}/${userAvatar}.${ext}?size=256`;
+            }
+            resolvedFromDiscord = true;
+          }
+        } catch {
+          // fall back to global user lookup
+        }
+      }
+
+      // 2. Fallback to global Discord User endpoint if not found in guild
+      if (!resolvedFromDiscord) {
+        try {
+          const userResp = await fetch(`https://discord.com/api/v10/users/${discordId}`, {
+            headers: { Authorization: `Bot ${botToken}` },
+          });
+          if (userResp.ok) {
+            const dUser = (await userResp.json()) as Record<string, unknown>;
+            const liveUsername = stripDiscrim(dUser.username);
+            const liveGlobalName =
+              typeof dUser.global_name === 'string' && dUser.global_name.trim()
+                ? dUser.global_name.trim()
+                : null;
+            if (liveUsername) username = liveUsername;
+            nickname = liveGlobalName || liveUsername || nickname;
+
+            const userAvatar =
+              typeof dUser.avatar === 'string' && dUser.avatar.trim()
+                ? dUser.avatar.trim()
+                : null;
+            if (userAvatar) {
+              const ext = userAvatar.startsWith('a_') ? 'gif' : 'png';
+              avatarUrl = `https://cdn.discordapp.com/avatars/${discordId}/${userAvatar}.${ext}?size=256`;
+            }
+            resolvedFromDiscord = true;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // 3. Persist refreshed profile metadata into Supabase Auth user_metadata in background
+      if (resolvedFromDiscord) {
+        void supabase.auth.admin
+          .updateUserById(user.id, {
+            user_metadata: {
+              ...meta,
+              user_name: username || meta.user_name,
+              full_name: nickname || meta.full_name,
+              discord_nickname: nickname,
+              avatar_url: avatarUrl || meta.avatar_url,
+            },
+          })
+          .catch(() => {});
+      }
+    }
+
+    send(res, 200, {
+      ok: true,
+      discord_id: discordId || null,
+      nickname: nickname || username || 'Not available',
+      username: username || 'Not available',
+      avatar_url: avatarUrl,
+      role: auth.role ?? null,
+    });
+  } catch (err) {
+    send(res, 500, {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to load Discord profile.',
+    });
+  }
+}
+
 interface DiscordGuildRole {
   id: string;
   name: string;
@@ -2957,6 +3136,9 @@ export default async function handler(req: unknown, res: {
 
     // Route dispatch
     switch (path) {
+      case 'discord-profile':
+        await handleDiscordProfile(r, res, auth);
+        break;
       case 'tracked-clans':
         await handleTrackedClans(r, res, auth);
         break;
