@@ -9,6 +9,7 @@ import {
   LoaderCircle,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Shield,
   Sparkles,
@@ -22,7 +23,8 @@ import { compareClansByLeague } from '@/cwlLeague';
 
 interface Season { id: string; name: string; created_by: string | null; created_at: string; closed_by: string | null; closed_at: string | null }
 interface CwlClan { clan_tag: string; clan_name: string | null; cwl_league: string | null; badge_url: string | null }
-interface SeasonClan { id: string; clan_tag: string; roster_size: number; added_by: string | null; added_at: string }
+interface SeasonClan { id: string; clan_tag: string; roster_size: number; role_id: string | null; added_by: string | null; added_at: string }
+interface DiscordRole { id: string; name: string; color: number; position: number }
 interface Entry {
   id: string;
   player_name: string;
@@ -41,8 +43,139 @@ interface RosterData {
   past_seasons: Season[];
   clans: CwlClan[];
   season_clans: SeasonClan[];
+  discord_roles?: DiscordRole[];
   entries: Entry[];
   warning: string | null;
+}
+
+function roleColorHex(color: number): string {
+  return color > 0 ? `#${color.toString(16).padStart(6, '0')}` : '#99aab5';
+}
+
+interface RolePickerProps {
+  value: string | null;
+  roles: DiscordRole[];
+  usedByOtherClan: Map<string, string>;
+  syncingRoles: boolean;
+  onSyncRoles: () => void;
+  onChange: (roleId: string | null) => void;
+}
+
+function RolePicker({ value, roles, usedByOtherClan, syncingRoles, onSyncRoles, onChange }: RolePickerProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = roles.find((r) => r.id === value) ?? null;
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  const q = query.trim().toLowerCase();
+  const visible = roles.filter((r) => !q || r.name.toLowerCase().includes(q) || r.id.includes(q));
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((cur) => !cur)}
+        className="astral-btn-ghost text-xs px-3 py-1.5 max-w-[14rem]"
+        title={selected ? `Discord role: @${selected.name} (${selected.id})` : value ? `Discord role ID: ${value}` : 'Assign a Discord role to this CWL clan'}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span
+          className="w-2.5 h-2.5 rounded-full shrink-0"
+          style={{ backgroundColor: selected ? roleColorHex(selected.color) : value ? '#f59e0b' : 'rgba(153,170,181,0.35)' }}
+        />
+        <span className={`truncate ${selected || value ? 'text-white font-medium' : 'text-astral-300/60'}`}>
+          {selected ? `@${selected.name}` : value ? `Role ${value}` : 'Discord role'}
+        </span>
+        <ChevronDown className={`w-3.5 h-3.5 text-astral-300/60 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 z-30 mt-2 w-72 max-w-[85vw] rounded-xl border border-astral-700/40 bg-space-800 p-2 shadow-2xl shadow-space-950">
+          <div className="flex items-center gap-1.5">
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-astral-300/50" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search Discord roles..."
+                className="astral-input w-full pl-8 pr-2 py-1.5 text-xs"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={onSyncRoles}
+              disabled={syncingRoles}
+              className="p-1.5 rounded-lg text-astral-300/70 hover:text-white hover:bg-white/5 shrink-0"
+              title="Sync roles from Discord server"
+              aria-label="Sync roles from Discord server"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingRoles ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          <ul role="listbox" className="mt-2 max-h-60 overflow-y-auto overscroll-contain space-y-0.5 text-xs">
+            <li>
+              <button
+                type="button"
+                role="option"
+                aria-selected={!value}
+                onClick={() => { onChange(null); setOpen(false); setQuery(''); }}
+                className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-astral-300/70 hover:bg-white/5"
+              >
+                <X className="w-3.5 h-3.5 shrink-0" />
+                <span className="flex-1">No Discord role</span>
+                {!value && <Check className="w-3.5 h-3.5 text-gold-300 shrink-0" />}
+              </button>
+            </li>
+            {visible.length === 0 ? (
+              <li className="px-2.5 py-3 text-center text-astral-300/50">
+                {roles.length === 0 ? 'No roles synced yet — click refresh.' : 'No matching roles.'}
+              </li>
+            ) : (
+              visible.map((role) => {
+                const isSelected = role.id === value;
+                const otherClan = usedByOtherClan.get(role.id);
+                return (
+                  <li key={role.id}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      onClick={() => { onChange(role.id); setOpen(false); setQuery(''); }}
+                      className={`w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-white/5 ${isSelected ? 'bg-white/5 text-white' : 'text-astral-100'}`}
+                    >
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: roleColorHex(role.color) }}
+                      />
+                      <span className="flex-1 min-w-0">
+                        <span className="block truncate font-medium">@{role.name}</span>
+                        {otherClan && (
+                          <span className="block truncate text-[10px] text-amber-300/70">Used by {otherClan}</span>
+                        )}
+                      </span>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-gold-300 shrink-0" />}
+                    </button>
+                  </li>
+                );
+              })
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Modal({ children }: { children: ReactNode }) {
@@ -411,6 +544,47 @@ export default function CwlRosterPage() {
   // ───── Optimistic roster edits: UI updates instantly, server syncs in the background ─────
   const [addingTo, setAddingTo] = useState<string | null>(null);
   const [savingClans, setSavingClans] = useState<Set<string>>(() => new Set());
+  const [syncingRoles, setSyncingRoles] = useState(false);
+
+  const syncDiscordRoles = async () => {
+    setSyncingRoles(true);
+    setError(null);
+    try {
+      const body = await request('POST', { action: 'sync_roles' });
+      const roles = Array.isArray(body.discord_roles) ? (body.discord_roles as DiscordRole[]) : [];
+      setData((prev) => (prev ? { ...prev, discord_roles: roles } : prev));
+      setMessage(`Synced ${roles.length} Discord role(s).`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to sync Discord roles.');
+    } finally {
+      setSyncingRoles(false);
+    }
+  };
+
+  const setClanRole = (clanTag: string, roleId: string | null) => {
+    setError(null);
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            season_clans: prev.season_clans.map((sc) => (sc.clan_tag === clanTag ? { ...sc, role_id: roleId } : sc)),
+          }
+        : prev
+    );
+    pendingOps.current += 1;
+    markSaving(clanTag, true);
+    void (async () => {
+      try {
+        await request('POST', { action: 'set_role', clan_tag: clanTag, role_id: roleId });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to save Discord role.');
+      } finally {
+        pendingOps.current -= 1;
+        markSaving(clanTag, false);
+        if (pendingOps.current === 0) void load(true);
+      }
+    })();
+  };
   const pendingOps = useRef(0);
   const markSaving = (tag: string, on: boolean) => {
     setSavingClans((current) => {
@@ -559,6 +733,9 @@ export default function CwlRosterPage() {
         </div>
         {season && (
           <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => void syncDiscordRoles()} disabled={syncingRoles} className="astral-btn-ghost" title="Sync roles from Discord server">
+              <RefreshCw className={`w-4 h-4 ${syncingRoles ? 'animate-spin' : ''}`} /> Sync roles
+            </button>
             <button onClick={() => openSeasonDialog('rename_season')} className="astral-btn-ghost" title="Rename season"><Pencil className="w-4 h-4" /> Rename</button>
             <button onClick={() => openSeasonDialog('new_season')} className="astral-btn-ghost"><Plus className="w-4 h-4" /> New season</button>
             <button onClick={() => openSeasonDialog('close_season')} className="astral-btn-ghost text-rose-200"><X className="w-4 h-4" /> Close season</button>
@@ -723,6 +900,12 @@ export default function CwlRosterPage() {
             const clanLabel = clan?.clan_name ?? sc.clan_tag;
             const fillers = [...unassigned].sort(byWeightDesc).slice(0, free);
             const isCollapsed = collapsedRosters.has(sc.clan_tag);
+            const usedByOtherClan = new Map<string, string>();
+            for (const other of data?.season_clans ?? []) {
+              if (other.clan_tag !== sc.clan_tag && other.role_id) {
+                usedByOtherClan.set(other.role_id, clanByTag.get(other.clan_tag)?.clan_name ?? other.clan_tag);
+              }
+            }
 
             return (
               <section key={sc.id} className="astral-card">
@@ -747,6 +930,14 @@ export default function CwlRosterPage() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
+                    <RolePicker
+                      value={sc.role_id ?? null}
+                      roles={data?.discord_roles ?? []}
+                      usedByOtherClan={usedByOtherClan}
+                      syncingRoles={syncingRoles}
+                      onSyncRoles={() => void syncDiscordRoles()}
+                      onChange={(roleId) => setClanRole(sc.clan_tag, roleId)}
+                    />
                     <div className="inline-flex rounded-xl border border-astral-700/40 p-0.5" role="group" aria-label="Roster size">
                       {[15, 30].map((size) => (
                         <button
