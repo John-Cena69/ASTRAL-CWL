@@ -1651,12 +1651,25 @@ async function handleCwlRoster(req: { method?: string; url: string; headers: Rec
           .in('clan_tag', newAdds);
         if (clansError) throw new Error(clansError.message);
         if ((clans ?? []).length !== newAdds.length) return fail(400, 'One of the selected clans is not a CWL clan.');
+        const { data: prevRoles } = await supabase
+          .from('cwl_season_clans')
+          .select('clan_tag, role_id, added_at')
+          .in('clan_tag', newAdds)
+          .not('role_id', 'is', null)
+          .order('added_at', { ascending: false });
+        const lastRoleByTag = new Map<string, string>();
+        for (const r of prevRoles ?? []) {
+          if (r.clan_tag && r.role_id && !lastRoleByTag.has(r.clan_tag as string)) {
+            lastRoleByTag.set(r.clan_tag as string, r.role_id as string);
+          }
+        }
         const rows = (clans ?? []).map((clan) => {
           const league = String(clan.cwl_league ?? '').toLowerCase();
           return {
             season_id: season.id,
             clan_tag: clan.clan_tag,
             roster_size: !league || league.includes('unrank') ? 15 : 30,
+            role_id: lastRoleByTag.get(clan.clan_tag as string) ?? null,
             added_by: actor,
           };
         });
@@ -1705,11 +1718,25 @@ async function handleCwlRoster(req: { method?: string; url: string; headers: Rec
       if (clanError) throw new Error(clanError.message);
       if (!clan) return fail(400, 'Unknown CWL clan.');
       if (await findSeasonClan(tag)) return fail(400, 'That clan is already part of this season.');
+      const { data: prevRole } = await supabase
+        .from('cwl_season_clans')
+        .select('role_id')
+        .eq('clan_tag', tag)
+        .not('role_id', 'is', null)
+        .order('added_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
       const league = String(clan.cwl_league ?? '').toLowerCase();
       const size = !league || league.includes('unrank') ? 15 : 30;
       const { error } = await supabase
         .from('cwl_season_clans')
-        .insert({ season_id: season.id, clan_tag: tag, roster_size: size, added_by: actor });
+        .insert({
+          season_id: season.id,
+          clan_tag: tag,
+          roster_size: size,
+          role_id: (prevRole?.role_id as string | null) ?? null,
+          added_by: actor,
+        });
       if (error) throw new Error(error.message);
       send(res, 200, { ok: true });
       return;
