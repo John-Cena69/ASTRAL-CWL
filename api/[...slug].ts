@@ -1684,10 +1684,10 @@ async function handleCwlRoster(req: { method?: string; url: string; headers: Rec
       return;
     }
 
-    if (action === 'assign' || action === 'autofill') {
+    if (action === 'assign' || action === 'autofill' || action === 'assign_many') {
       const ids = action === 'assign'
         ? [String(body.entry_id ?? '')].filter(Boolean)
-        : (Array.isArray(body.entry_ids) ? body.entry_ids.map((id) => String(id)) : []);
+        : [...new Set((Array.isArray(body.entry_ids) ? body.entry_ids : []).map((id) => String(id)).filter(Boolean))];
       if (ids.length === 0) return fail(400, 'No players selected.');
       const count = await assignedCount(tag);
       if (count + ids.length > seasonClan.roster_size) {
@@ -1700,23 +1700,26 @@ async function handleCwlRoster(req: { method?: string; url: string; headers: Rec
         .maybeSingle();
       if (clanError) throw new Error(clanError.message);
       const base = Date.now();
-      let assigned = 0;
-      for (let i = 0; i < ids.length; i += 1) {
-        const { data, error } = await supabase
+      // Run in parallel; each row gets its own timestamp so the roster keeps the chosen order.
+      const results = await Promise.all(ids.map((entryId, i) =>
+        supabase
           .from('cwl_entries')
           .update({
             cwl_clan_tag: tag,
             cwl_clan_name: clan?.clan_name ?? null,
             cwl_assigned_at: new Date(base + i).toISOString(),
           })
-          .eq('id', ids[i])
+          .eq('id', entryId)
           .is('cwl_clan_tag', null)
-          .select('id');
+          .select('id')
+      ));
+      let assigned = 0;
+      for (const { data, error } of results) {
         if (error) throw new Error(error.message);
         assigned += data?.length ?? 0;
       }
       if (assigned === 0) return fail(409, 'Those players were already assigned. Refresh and try again.');
-      send(res, 200, { ok: true, assigned });
+      send(res, 200, { ok: true, assigned, skipped: ids.length - assigned });
       return;
     }
 
