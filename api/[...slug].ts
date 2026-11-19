@@ -1799,16 +1799,17 @@ async function handleCwlEntries(req: { method?: string; url: string; headers: Re
       const notes = typeof body.notes === 'string' ? body.notes.trim() : '';
       updates.notes = notes || null;
     }
+    let parsedWeight: number | null | undefined;
     if ('war_weight' in body) {
       if (body.war_weight === null || body.war_weight === '') {
-        updates.war_weight_override = null;
+        parsedWeight = null;
       } else {
         const weight = Number(body.war_weight);
         if (!Number.isInteger(weight) || weight < 0) {
           send(res, 400, { ok: false, error: 'War weight must be a non-negative whole number.' });
           return;
         }
-        updates.war_weight_override = weight;
+        parsedWeight = weight;
       }
     }
     if ('cwl_clan_tag' in body) {
@@ -1832,12 +1833,50 @@ async function handleCwlEntries(req: { method?: string; url: string; headers: Re
         updates.cwl_clan_name = clan.clan_name;
       }
     }
-    if (Object.keys(updates).length === 0) {
+    if (parsedWeight !== undefined) {
+      const { data: entry, error: entryError } = await supabase
+        .from('cwl_entries')
+        .select('player_tag')
+        .eq('id', id)
+        .maybeSingle();
+      if (entryError) throw new Error(entryError.message);
+      if (!entry) {
+        send(res, 404, { ok: false, error: 'CWL entry not found.' });
+        return;
+      }
+      const tag = normTag(entry.player_tag);
+      const tagVariants = [tag, tag.slice(1)];
+      const now = new Date().toISOString();
+
+      const { data: cpUpdated, error: cpError } = await supabase
+        .from('clan_players')
+        .update({ war_weight: parsedWeight, updated_date: now })
+        .in('player_tag', tagVariants)
+        .select('id');
+      if (cpError) throw new Error(cpError.message);
+
+      const { error: wwError } = await supabase
+        .from('war_weights')
+        .update({
+          war_weight: parsedWeight,
+          value: parsedWeight !== null ? Math.round(parsedWeight / 5) : null,
+          updated_date: now,
+        })
+        .in('player_tag', tagVariants);
+      if (wwError) throw new Error(wwError.message);
+
+      // Keep override in sync only when the player isn't in clan_players (or clear it when clearing weight)
+      if (!cpUpdated?.length || parsedWeight === null) {
+        updates.war_weight_override = parsedWeight;
+      }
+    }
+    if (Object.keys(updates).length > 0) {
+      const { error } = await supabase.from('cwl_entries').update(updates).eq('id', id);
+      if (error) throw new Error(error.message);
+    } else if (parsedWeight === undefined) {
       send(res, 400, { ok: false, error: 'Nothing to update.' });
       return;
     }
-    const { error } = await supabase.from('cwl_entries').update(updates).eq('id', id);
-    if (error) throw new Error(error.message);
     send(res, 200, { ok: true });
   } catch (error) {
     send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Request failed.' });
