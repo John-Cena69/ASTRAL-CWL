@@ -1406,6 +1406,45 @@ async function getActorName(req: { headers: Record<string, string | string[] | u
   }
 }
 
+const CWL_DISCORD_GUILD_ID = '1519252846648889405';
+
+interface DiscordGuildRole {
+  id: string;
+  name: string;
+  color: number;
+  position: number;
+}
+
+async function fetchCwlGuildRoles(): Promise<{ roles: DiscordGuildRole[]; warning: string | null }> {
+  const token = (process.env.DISCORD_BOT_TOKEN ?? '').trim();
+  if (!token) {
+    return { roles: [], warning: 'DISCORD_BOT_TOKEN is not configured on the server; Discord roles could not be loaded.' };
+  }
+  try {
+    const response = await fetch(`https://discord.com/api/v10/guilds/${CWL_DISCORD_GUILD_ID}/roles`, {
+      headers: { Authorization: `Bot ${token}` },
+    });
+    if (!response.ok) {
+      return { roles: [], warning: `Discord roles sync failed (HTTP ${response.status}).` };
+    }
+    const raw = (await response.json()) as Array<Record<string, unknown>>;
+    if (!Array.isArray(raw)) return { roles: [], warning: null };
+    const roles: DiscordGuildRole[] = raw
+      .filter((r) => r && r.id !== CWL_DISCORD_GUILD_ID && r.name !== '@everyone' && r.managed !== true)
+      .map((r) => ({
+        id: String(r.id ?? ''),
+        name: String(r.name ?? ''),
+        color: Number(r.color ?? 0),
+        position: Number(r.position ?? 0),
+      }))
+      .filter((r) => r.id && r.name)
+      .sort((a, b) => b.position - a.position || a.name.localeCompare(b.name));
+    return { roles, warning: null };
+  } catch (err) {
+    return { roles: [], warning: `Discord roles sync failed: ${err instanceof Error ? err.message : 'unknown error'}` };
+  }
+}
+
 // GET/POST /api/cwl-roster — CWL seasons, season clans and roster assignments
 async function handleCwlRoster(req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }, res: { status: (code: number) => { json: (body: unknown) => void } }, auth: AuthResult): Promise<void> {
   const method = req.method ?? 'GET';
@@ -1430,10 +1469,11 @@ async function handleCwlRoster(req: { method?: string; url: string; headers: Rec
 
     if (method === 'GET') {
       const season = await getActive();
-      const [{ data: past, error: pastError }, { data: allClans, error: clansError }, { data: entries, error: entriesError }] = await Promise.all([
+      const [{ data: past, error: pastError }, { data: allClans, error: clansError }, { data: entries, error: entriesError }, rolesResult] = await Promise.all([
         supabase.from('cwl_seasons').select('*').eq('status', 'closed').order('closed_at', { ascending: false }).limit(10),
         supabase.from('cwl_clans').select('clan_tag, clan_name, cwl_league, badge_url'),
         supabase.from('cwl_entries_view').select('*').order('created_date', { ascending: true }),
+        fetchCwlGuildRoles(),
       ]);
       if (pastError) throw new Error(pastError.message);
       if (clansError) throw new Error(clansError.message);
@@ -1478,13 +1518,15 @@ async function handleCwlRoster(req: { method?: string; url: string; headers: Rec
         warning = `Discord ID lookup failed: ${lookupError instanceof Error ? lookupError.message : 'unknown error'}`;
       }
 
+      const warnings = [warning, rolesResult.warning].filter(Boolean);
       send(res, 200, {
         ok: true,
-        warning,
+        warning: warnings.length > 0 ? warnings.join(' · ') : null,
         season,
         past_seasons: past ?? [],
         clans: allClans ?? [],
         season_clans: seasonClans,
+        discord_roles: rolesResult.roles,
         entries: (entries ?? []).map((entry) => ({ ...entry, discord_id: discordMap.get(normTag(entry.player_tag)) ?? null })),
       });
       return;
@@ -1493,6 +1535,13 @@ async function handleCwlRoster(req: { method?: string; url: string; headers: Rec
     // ───────── POST actions ─────────
     const body = readJsonBody(req);
     const action = String(body.action ?? '');
+
+    if (action === 'sync_roles') {
+      const { roles, warning } = await fetchCwlGuildRoles();
+      if (warning) return fail(502, warning);
+      send(res, 200, { ok: true, discord_roles: roles });
+      return;
+    }
     const actor = await getActorName(req);
     const now = new Date().toISOString();
     const cleanName = (value: unknown): string => String(value ?? '').trim().replace(/\s+/g, ' ');
@@ -1681,6 +1730,15 @@ async function handleCwlRoster(req: { method?: string; url: string; headers: Rec
       const { error } = await supabase.from('cwl_season_clans').update({ roster_size: size }).eq('id', seasonClan.id);
       if (error) throw new Error(error.message);
       send(res, 200, { ok: true });
+      return;
+    }
+
+    if (action === 'set_role') {
+      const rawRole = typeof body.role_id === 'string' ? body.role_id.trim() : '';
+      const roleId = rawRole || null;
+      const { error } = await supabase.from('cwl_season_clans').update({ role_id: roleId }).eq('id', seasonClan.id);
+      if (error) throw new Error(error.message);
+      send(res, 200, { ok: true, role_id: roleId });
       return;
     }
 
