@@ -805,6 +805,7 @@ export default function EntriesPage() {
               <input
                 type="number"
                 min={0}
+                step={1000}
                 value={weightInput}
                 onChange={(event) => setWeightInput(event.target.value)}
                 className="astral-input mt-1.5 w-full"
