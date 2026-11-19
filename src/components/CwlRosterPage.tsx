@@ -36,8 +36,18 @@ interface Entry {
   cwl_clan_tag: string | null;
   cwl_clan_name: string | null;
   cwl_assigned_at: string | null;
+  status: string | null;
+  current_clan: string | null;
   created_date: string;
 }
+
+const STATUS_STYLES: Record<string, string> = {
+  'In CWL Clan': 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+  'In Wrong CWL Clan': 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+  'In Home Clan': 'bg-astral-500/15 text-astral-300 border-astral-500/30',
+  'In Other Clan': 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+  Unregistered: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
+};
 interface RosterData {
   season: Season | null;
   past_seasons: Season[];
@@ -893,8 +903,8 @@ export default function CwlRosterPage() {
           {sortedSeasonClans.map((sc) => {
             const clan = clanByTag.get(sc.clan_tag);
             const roster = (data?.entries ?? []).filter((entry) => entry.cwl_clan_tag === sc.clan_tag).sort(byAssignment);
-            const weighted = roster.filter((entry) => entry.war_weight !== null);
-            const average = weighted.length > 0 ? Math.round(weighted.reduce((sum, entry) => sum + (entry.war_weight ?? 0), 0) / weighted.length) : null;
+            const missingWeightCount = roster.filter((entry) => entry.war_weight === null).length;
+            const average = roster.length > 0 ? Math.round(roster.reduce((sum, entry) => sum + (entry.war_weight ?? 0), 0) / roster.length) : null;
             const free = Math.max(0, sc.roster_size - roster.length);
             const full = roster.length >= sc.roster_size;
             const clanLabel = clan?.clan_name ?? sc.clan_tag;
@@ -923,7 +933,7 @@ export default function CwlRosterPage() {
                       <div className="text-xs uppercase tracking-wide text-astral-300/60">Players</div>
                       <div className={`font-semibold tabular-nums ${roster.length > sc.roster_size ? 'text-rose-300' : 'text-white'}`}>{roster.length}/{sc.roster_size}</div>
                     </div>
-                    <div title={weighted.length < roster.length ? `${roster.length - weighted.length} player(s) without a weight are not counted` : 'Average of assigned players'}>
+                    <div title={missingWeightCount > 0 ? `Average of assigned players (${missingWeightCount} player(s) without a weight counted as 0)` : 'Average of assigned players'}>
                       <div className="text-xs uppercase tracking-wide text-astral-300/60">Avg weight</div>
                       <div className="font-semibold tabular-nums text-gold-300">{average !== null ? average.toLocaleString() : '—'}</div>
                     </div>
@@ -1008,6 +1018,7 @@ export default function CwlRosterPage() {
                           <th className="px-4 py-3 text-left font-medium">Discord ID</th>
                           <th className="px-4 py-3 text-left font-medium">Clan</th>
                           <th className="px-4 py-3 text-right font-medium">War Weight</th>
+                          <th className="px-4 py-3 text-left font-medium">Status</th>
                           <th className="px-4 py-3 text-left font-medium">Notes</th>
                           <th className="px-4 py-3" />
                         </tr>
@@ -1021,6 +1032,30 @@ export default function CwlRosterPage() {
                             <td className="px-4 py-3 font-mono text-xs">{entry.discord_id || '—'}</td>
                             <td className="px-4 py-3">{entry.cwl_clan_name || clanLabel}</td>
                             <td className="px-4 py-3 text-right tabular-nums">{entry.war_weight != null ? entry.war_weight.toLocaleString() : '—'}</td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              {entry.status ? (
+                                <div className="flex flex-col items-start gap-1">
+                                  <span
+                                    className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${
+                                      STATUS_STYLES[entry.status] ||
+                                      'bg-astral-500/15 text-astral-300 border-astral-500/30'
+                                    }`}
+                                  >
+                                    {entry.status}
+                                  </span>
+                                  {(entry.status === 'In Other Clan' ||
+                                    entry.status === 'In Wrong CWL Clan' ||
+                                    entry.status === 'In Home Clan') &&
+                                    entry.current_clan && (
+                                      <span className="text-xs text-astral-300/70">
+                                        {entry.current_clan}
+                                      </span>
+                                    )}
+                                </div>
+                              ) : (
+                                <span className="text-astral-300/40">—</span>
+                              )}
+                            </td>
                             <td className="px-4 py-3 max-w-xs truncate" title={entry.notes ?? ''}>{entry.notes || '—'}</td>
                             <td className="px-4 py-3 text-right">
                               <button
