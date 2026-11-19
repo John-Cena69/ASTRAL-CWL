@@ -884,7 +884,7 @@ export default function ClansPage() {
         <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-start sm:items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-gold-400/20 to-astral-600/30 border border-gold-400/30 flex items-center justify-center shrink-0 shadow-lg shadow-astral-950/60">
-              <img src="/cwlmedal.webp" alt="CWL Medal" className="w-8 h-8 object-contain drop-shadow" />
+              <img src="/cwlmedal.png" alt="CWL" className="w-8 h-8 object-contain drop-shadow" />
             </div>
             <div>
               <h2 className="font-display text-2xl sm:text-3xl font-bold text-white tracking-tight">
