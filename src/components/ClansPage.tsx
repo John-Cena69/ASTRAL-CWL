@@ -51,6 +51,38 @@ function sortClans(clans: CwlClan[]): CwlClan[] {
   return [...clans].sort(compareClansByLeague);
 }
 
+type CwlSettingKey = 'cwl_signup_enabled' | 'cwl_roster_enabled' | 'cwl_tracker_enabled';
+
+const CWL_TOGGLES: {
+  key: CwlSettingKey;
+  title: string;
+  enabledText: string;
+  disabledText: string;
+  ariaLabel: string;
+}[] = [
+  {
+    key: 'cwl_signup_enabled',
+    title: 'Sign-ups',
+    enabledText: 'Sign-ups are enabled.',
+    disabledText: 'Sign-ups are disabled.',
+    ariaLabel: 'Toggle CWL sign-ups',
+  },
+  {
+    key: 'cwl_roster_enabled',
+    title: 'Roster',
+    enabledText: 'Roster is enabled.',
+    disabledText: 'Roster is disabled.',
+    ariaLabel: 'Toggle CWL roster',
+  },
+  {
+    key: 'cwl_tracker_enabled',
+    title: 'Tracker',
+    enabledText: 'Tracker is enabled.',
+    disabledText: 'Tracker is disabled.',
+    ariaLabel: 'Toggle CWL tracker',
+  },
+];
+
 export default function ClansPage() {
   const [clans, setClans] = useState<CwlClan[]>([]);
   const [tagInput, setTagInput] = useState('');
@@ -61,8 +93,16 @@ export default function ClansPage() {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [signupEnabled, setSignupEnabled] = useState<boolean | null>(null);
-  const [signupSaving, setSignupSaving] = useState(false);
+  const [cwlSettings, setCwlSettings] = useState<Record<CwlSettingKey, boolean | null>>({
+    cwl_signup_enabled: null,
+    cwl_roster_enabled: null,
+    cwl_tracker_enabled: null,
+  });
+  const [savingSettings, setSavingSettings] = useState<Record<CwlSettingKey, boolean>>({
+    cwl_signup_enabled: false,
+    cwl_roster_enabled: false,
+    cwl_tracker_enabled: false,
+  });
 
   const loadClans = async () => {
     if (!supabase) {
@@ -96,7 +136,13 @@ export default function ClansPage() {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
     });
-    const body = (await response.json().catch(() => ({}))) as { enabled?: boolean; error?: string };
+    const body = (await response.json().catch(() => ({}))) as {
+      enabled?: boolean;
+      cwl_signup_enabled?: boolean;
+      cwl_roster_enabled?: boolean;
+      cwl_tracker_enabled?: boolean;
+      error?: string;
+    };
     if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
     return body;
   };
@@ -104,23 +150,28 @@ export default function ClansPage() {
   const loadSignup = async () => {
     try {
       const body = await signupFetch({ method: 'GET' });
-      setSignupEnabled(Boolean(body.enabled));
+      setCwlSettings({
+        cwl_signup_enabled: Boolean(body.cwl_signup_enabled ?? body.enabled),
+        cwl_roster_enabled: Boolean(body.cwl_roster_enabled),
+        cwl_tracker_enabled: Boolean(body.cwl_tracker_enabled),
+      });
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Failed to load sign-up setting.');
+      setError(loadError instanceof Error ? loadError.message : 'Failed to load CWL settings.');
     }
   };
 
-  const toggleSignup = async () => {
-    if (signupEnabled === null || signupSaving) return;
-    const next = !signupEnabled;
-    setSignupSaving(true);
+  const toggleSetting = async (key: CwlSettingKey) => {
+    const current = cwlSettings[key];
+    if (current === null || savingSettings[key]) return;
+    const next = !current;
+    setSavingSettings((prev) => ({ ...prev, [key]: true }));
     try {
-      await signupFetch({ method: 'POST', body: JSON.stringify({ enabled: next }) });
-      setSignupEnabled(next);
+      await signupFetch({ method: 'POST', body: JSON.stringify({ setting_name: key, enabled: next }) });
+      setCwlSettings((prev) => ({ ...prev, [key]: next }));
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Failed to update sign-up setting.');
+      setError(saveError instanceof Error ? saveError.message : 'Failed to update CWL setting.');
     } finally {
-      setSignupSaving(false);
+      setSavingSettings((prev) => ({ ...prev, [key]: false }));
     }
   };
 
@@ -212,25 +263,33 @@ export default function ClansPage() {
 
   return (
     <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-6">
-      <section className="astral-card p-5 flex items-center justify-between gap-4">
-        <div>
-          <h3 className="font-semibold text-white">Sign-ups</h3>
-          <p className="mt-1 text-sm text-astral-300/60">
-            {signupEnabled === null ? 'Loading...' : signupEnabled ? 'Sign-ups are enabled.' : 'Sign-ups are disabled.'}
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={signupEnabled === true}
-          aria-label="Toggle CWL sign-ups"
-          disabled={signupEnabled === null || signupSaving}
-          onClick={() => void toggleSignup()}
-          className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition disabled:opacity-50 ${signupEnabled ? 'bg-emerald-500' : 'bg-astral-300/30'}`}
-        >
-          <span className={`inline-block h-5 w-5 rounded-full bg-white transition-transform ${signupEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-        </button>
-      </section>
+      <div className="grid gap-4 md:grid-cols-3">
+        {CWL_TOGGLES.map((item) => {
+          const enabled = cwlSettings[item.key];
+          const isSaving = savingSettings[item.key];
+          return (
+            <section key={item.key} className="astral-card p-5 flex items-center justify-between gap-4">
+              <div>
+                <h3 className="font-semibold text-white">{item.title}</h3>
+                <p className="mt-1 text-sm text-astral-300/60">
+                  {enabled === null ? 'Loading...' : enabled ? item.enabledText : item.disabledText}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={enabled === true}
+                aria-label={item.ariaLabel}
+                disabled={enabled === null || isSaving}
+                onClick={() => void toggleSetting(item.key)}
+                className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition disabled:opacity-50 ${enabled ? 'bg-emerald-500' : 'bg-astral-300/30'}`}
+              >
+                <span className={`inline-block h-5 w-5 rounded-full bg-white transition-transform ${enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </section>
+          );
+        })}
+      </div>
 
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
         <div>
