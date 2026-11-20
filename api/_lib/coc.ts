@@ -63,6 +63,66 @@ export interface CocPlayer {
   clan?: { tag: string; name: string };
 }
 
+export interface CocPlayerProfile {
+  tag: string;
+  name: string;
+  townHallLevel: number | null;
+  townHallWeaponLevel?: number | null;
+  expLevel?: number;
+  trophies?: number;
+  bestTrophies?: number;
+  warStars?: number;
+  attackWins?: number;
+  defenseWins?: number;
+  role?: string;
+  warPreference?: 'in' | 'out';
+  donations?: number;
+  donationsReceived?: number;
+  clanCapitalContributions?: number;
+  clan?: {
+    tag: string;
+    name: string;
+    clanLevel?: number;
+    badgeUrls?: { small?: string; medium?: string; large?: string };
+  };
+  league?: {
+    id: number;
+    name: string;
+    iconUrls?: { small?: string; tiny?: string; medium?: string };
+  };
+  leagueTier?: {
+    id: number;
+    name: string;
+    iconUrls?: { small?: string; large?: string };
+  };
+  labels?: {
+    id: number;
+    name: string;
+    iconUrls?: { small?: string; medium?: string };
+  }[];
+  heroes?: {
+    name: string;
+    level: number;
+    maxLevel: number;
+    village: string;
+    equipment?: {
+      name: string;
+      level: number;
+      maxLevel: number;
+      village: string;
+    }[];
+  }[];
+  achievements?: {
+    name: string;
+    stars: number;
+    value: number;
+    target: number;
+    info: string;
+    completionInfo?: string | null;
+    village: string;
+  }[];
+}
+
 export async function getPlayer(tag: string): Promise<CocPlayer> {
   const body = (await request(`/players/${tagParam(tag)}`)) as {
     tag: string;
@@ -75,6 +135,15 @@ export async function getPlayer(tag: string): Promise<CocPlayer> {
     name: body.name,
     townHallLevel: body.townHallLevel ?? null,
     clan: body.clan ? { tag: body.clan.tag, name: body.clan.name } : undefined,
+  };
+}
+
+export async function getPlayerProfile(tag: string): Promise<CocPlayerProfile> {
+  const body = (await request(`/players/${tagParam(tag)}`)) as CocPlayerProfile;
+  return {
+    ...body,
+    townHallLevel: body.townHallLevel ?? null,
+    townHallWeaponLevel: body.townHallWeaponLevel ?? null,
   };
 }
 
