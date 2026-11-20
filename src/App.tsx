@@ -21,6 +21,7 @@ import ClanWarWeightsPage from '@/components/ClanWarWeightsPage';
 import StrikeBoardPage from '@/components/StrikeBoardPage';
 import StrikeManagerPage from '@/components/StrikeManagerPage';
 import DeveloperDashboard from '@/components/DeveloperDashboard';
+import PlayerSearchPage from '@/components/PlayerSearchPage';
 
 export default function App() {
   const [error, setError] = useState<string | null>(null);
@@ -407,6 +408,7 @@ export default function App() {
               ? <StrikeManagerPage clanTag={activePage.clanTag} clanName={activePage.clanName} />
               : <ClanHomePage clanTag={activePage.clanTag} clanName={activePage.clanName} />
         : activePage === 'developer' ? <DeveloperDashboard />
+        : activePage === 'playersearch' ? <PlayerSearchPage />
         : activePage === 'accounts' ? <AccountsPage />
         : activePage === 'wars' ? <WarsPage />
         : activePage === 'clans' ? <ClansPage />

@@ -24,7 +24,7 @@ export type ColumnKey =
   | 'homeClan'
   | 'status';
 
-export type PageKey = 'roster' | 'accounts' | 'wars' | 'clans' | 'entries' | 'cwlroster' | 'developer';
+export type PageKey = 'roster' | 'accounts' | 'wars' | 'clans' | 'entries' | 'cwlroster' | 'playersearch' | 'developer';
 
 export type ClanPageKey = 'home' | 'war-weights' | 'strike-board' | 'strike-manager';
 
