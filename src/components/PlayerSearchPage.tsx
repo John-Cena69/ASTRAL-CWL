@@ -163,6 +163,87 @@ function getTownHallImage(level: number | null): string | null {
   return `/${clamped}.png`;
 }
 
+// Per-Town-Hall maximum hero levels (from Clash of Clans Wiki / Hero Hall progression)
+const HERO_MAX_BY_TH: Record<string, Record<number, number>> = {
+  'Barbarian King': {
+    7: 10,
+    8: 20,
+    9: 30,
+    10: 40,
+    11: 50,
+    12: 65,
+    13: 75,
+    14: 80,
+    15: 90,
+    16: 95,
+    17: 100,
+    18: 105,
+  },
+  'Archer Queen': {
+    8: 10,
+    9: 30,
+    10: 40,
+    11: 50,
+    12: 65,
+    13: 75,
+    14: 80,
+    15: 90,
+    16: 95,
+    17: 100,
+    18: 105,
+  },
+  'Minion Prince': {
+    9: 10,
+    10: 20,
+    11: 30,
+    12: 40,
+    13: 50,
+    14: 60,
+    15: 70,
+    16: 80,
+    17: 90,
+    18: 95,
+  },
+  'Grand Warden': {
+    11: 20,
+    12: 40,
+    13: 50,
+    14: 55,
+    15: 65,
+    16: 70,
+    17: 75,
+    18: 80,
+  },
+  'Royal Champion': {
+    13: 25,
+    14: 30,
+    15: 40,
+    16: 45,
+    17: 50,
+    18: 55,
+  },
+  'Dragon Duke': {
+    15: 10,
+    16: 15,
+    17: 20,
+    18: 25,
+  },
+};
+
+function getHeroMaxForTownHall(
+  heroName: string,
+  townHallLevel: number | null,
+  currentLevel: number,
+  apiMaxLevel: number
+): number {
+  if (!townHallLevel) return apiMaxLevel;
+  const table = HERO_MAX_BY_TH[heroName];
+  if (!table) return apiMaxLevel;
+  const thCap = table[townHallLevel];
+  if (!thCap) return apiMaxLevel;
+  return Math.max(currentLevel, Math.min(thCap, apiMaxLevel));
+}
+
 export default function PlayerSearchPage() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -441,7 +522,6 @@ export default function PlayerSearchPage() {
                   )}
                   <span className="mt-1 px-2 py-0.5 rounded-md bg-gradient-to-r from-gold-500/25 to-amber-500/20 border border-gold-400/40 text-[11px] font-bold text-gold-200 tracking-wide">
                     TH {player.townHallLevel ?? '?'}
-                    {player.townHallWeaponLevel ? ` ★${player.townHallWeaponLevel}` : ''}
                   </span>
                 </div>
 
@@ -769,7 +849,7 @@ export default function PlayerSearchPage() {
                     className="w-12 h-12 object-contain drop-shadow shrink-0"
                   />
                   <div>
-                    <p className="font-display font-bold text-2xl gold-text">
+                    <p className="font-display font-bold text-2xl bg-gradient-to-r from-slate-100 via-slate-300 to-zinc-400 bg-clip-text text-transparent drop-shadow-sm">
                       {player.warStars.toLocaleString()}
                     </p>
                     <p className="text-xs text-astral-300/70">Total War Stars Won</p>
@@ -835,7 +915,18 @@ export default function PlayerSearchPage() {
                 {player.heroes.length > 0 && (
                   <span className="text-xs text-astral-300/60">
                     {player.heroes.reduce((sum, h) => sum + h.level, 0)} /{' '}
-                    {player.heroes.reduce((sum, h) => sum + h.maxLevel, 0)} Total Hero Levels
+                    {player.heroes.reduce(
+                      (sum, h) =>
+                        sum +
+                        getHeroMaxForTownHall(
+                          h.name,
+                          player.townHallLevel,
+                          h.level,
+                          h.maxLevel
+                        ),
+                      0
+                    )}{' '}
+                    Total Hero Levels (TH {player.townHallLevel ?? '?'})
                   </span>
                 )}
               </div>
@@ -845,12 +936,24 @@ export default function PlayerSearchPage() {
                   No Home Village heroes unlocked yet.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                <div
+                  className={`grid grid-cols-1 sm:grid-cols-2 ${
+                    player.heroes.length >= 6
+                      ? 'lg:grid-cols-3 xl:grid-cols-6'
+                      : 'lg:grid-cols-5'
+                  } gap-3`}
+                >
                   {player.heroes.map((hero) => {
-                    const isMax = hero.level >= hero.maxLevel;
+                    const thMaxLevel = getHeroMaxForTownHall(
+                      hero.name,
+                      player.townHallLevel,
+                      hero.level,
+                      hero.maxLevel
+                    );
+                    const isMax = hero.level >= thMaxLevel;
                     const pct =
-                      hero.maxLevel > 0
-                        ? Math.min(100, Math.round((hero.level / hero.maxLevel) * 100))
+                      thMaxLevel > 0
+                        ? Math.min(100, Math.round((hero.level / thMaxLevel) * 100))
                         : 100;
                     return (
                       <div
@@ -881,7 +984,7 @@ export default function PlayerSearchPage() {
                             Lv. {hero.level}
                           </span>
                           <span className="font-mono text-xs text-astral-300/60">
-                            / {hero.maxLevel}
+                            / {thMaxLevel}
                           </span>
                         </div>
 
@@ -971,15 +1074,15 @@ export default function PlayerSearchPage() {
                       </div>
 
                       <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
+                        <table className="w-full text-sm table-fixed min-w-[640px]">
                           <thead>
                             <tr className="bg-space-800/60 text-left text-xs text-astral-300/60">
-                              <th className="px-4 py-2.5 font-medium">Value</th>
-                              <th className="px-4 py-2.5 font-medium">Reason</th>
-                              <th className="px-4 py-2.5 font-medium">Note</th>
-                              <th className="px-4 py-2.5 font-medium">Clan</th>
-                              <th className="px-4 py-2.5 font-medium">Issued Date</th>
-                              <th className="px-4 py-2.5 font-medium">Confirmed By</th>
+                              <th className="w-1/6 px-4 py-2.5 font-medium">Value</th>
+                              <th className="w-1/6 px-4 py-2.5 font-medium">Reason</th>
+                              <th className="w-1/6 px-4 py-2.5 font-medium">Note</th>
+                              <th className="w-1/6 px-4 py-2.5 font-medium">Clan</th>
+                              <th className="w-1/6 px-4 py-2.5 font-medium">Issued Date</th>
+                              <th className="w-1/6 px-4 py-2.5 font-medium">Confirmed By</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -988,24 +1091,24 @@ export default function PlayerSearchPage() {
                                 key={s.id}
                                 className="border-t border-astral-700/20 hover:bg-astral-700/10 transition"
                               >
-                                <td className="px-4 py-2.5 font-mono font-bold">
+                                <td className="w-1/6 px-4 py-3 font-mono font-bold align-top whitespace-normal break-words">
                                   <span className={strikeValueColor(s.value)}>
                                     {s.value > 0 ? `+${s.value}` : s.value}
                                   </span>
                                 </td>
-                                <td className="px-4 py-2.5 text-white font-medium">
+                                <td className="w-1/6 px-4 py-3 text-white font-medium align-top whitespace-normal break-words">
                                   {s.reason || '—'}
                                 </td>
-                                <td className="px-4 py-2.5 text-astral-300/70">
+                                <td className="w-1/6 px-4 py-3 text-astral-300/70 align-top whitespace-normal break-words">
                                   {s.note || '—'}
                                 </td>
-                                <td className="px-4 py-2.5 text-astral-200">
+                                <td className="w-1/6 px-4 py-3 text-astral-200 align-top whitespace-normal break-words">
                                   {s.clan_name}
                                 </td>
-                                <td className="px-4 py-2.5 font-mono text-xs text-astral-200">
+                                <td className="w-1/6 px-4 py-3 font-mono text-xs text-astral-200 align-top whitespace-normal break-words">
                                   {formatDate(s.issued_date)}
                                 </td>
-                                <td className="px-4 py-2.5 text-xs text-astral-300/70">
+                                <td className="w-1/6 px-4 py-3 text-xs text-astral-300/70 align-top whitespace-normal break-words">
                                   {s.confirmed_by || '—'}
                                 </td>
                               </tr>
@@ -1045,15 +1148,15 @@ export default function PlayerSearchPage() {
                       </div>
 
                       <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
+                        <table className="w-full text-sm table-fixed min-w-[640px]">
                           <thead>
                             <tr className="bg-space-800/40 text-left text-xs text-astral-300/60">
-                              <th className="px-4 py-2.5 font-medium">Value</th>
-                              <th className="px-4 py-2.5 font-medium">Reason</th>
-                              <th className="px-4 py-2.5 font-medium">Note</th>
-                              <th className="px-4 py-2.5 font-medium">Clan</th>
-                              <th className="px-4 py-2.5 font-medium">Issued Date</th>
-                              <th className="px-4 py-2.5 font-medium">Confirmed By</th>
+                              <th className="w-1/6 px-4 py-2.5 font-medium">Value</th>
+                              <th className="w-1/6 px-4 py-2.5 font-medium">Reason</th>
+                              <th className="w-1/6 px-4 py-2.5 font-medium">Note</th>
+                              <th className="w-1/6 px-4 py-2.5 font-medium">Clan</th>
+                              <th className="w-1/6 px-4 py-2.5 font-medium">Issued Date</th>
+                              <th className="w-1/6 px-4 py-2.5 font-medium">Confirmed By</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1062,24 +1165,24 @@ export default function PlayerSearchPage() {
                                 key={s.id}
                                 className="border-t border-astral-700/15 hover:bg-astral-700/10 transition"
                               >
-                                <td className="px-4 py-2.5 font-mono font-bold">
+                                <td className="w-1/6 px-4 py-3 font-mono font-bold align-top whitespace-normal break-words">
                                   <span className={strikeValueColor(s.value)}>
                                     {s.value > 0 ? `+${s.value}` : s.value}
                                   </span>
                                 </td>
-                                <td className="px-4 py-2.5 text-astral-100">
+                                <td className="w-1/6 px-4 py-3 text-astral-100 align-top whitespace-normal break-words">
                                   {s.reason || '—'}
                                 </td>
-                                <td className="px-4 py-2.5 text-astral-300/60">
+                                <td className="w-1/6 px-4 py-3 text-astral-300/60 align-top whitespace-normal break-words">
                                   {s.note || '—'}
                                 </td>
-                                <td className="px-4 py-2.5 text-astral-200/80">
+                                <td className="w-1/6 px-4 py-3 text-astral-200/80 align-top whitespace-normal break-words">
                                   {s.clan_name}
                                 </td>
-                                <td className="px-4 py-2.5 font-mono text-xs text-astral-300/80">
+                                <td className="w-1/6 px-4 py-3 font-mono text-xs text-astral-300/80 align-top whitespace-normal break-words">
                                   {formatDate(s.issued_date)}
                                 </td>
-                                <td className="px-4 py-2.5 text-xs text-astral-300/60">
+                                <td className="w-1/6 px-4 py-3 text-xs text-astral-300/60 align-top whitespace-normal break-words">
                                   {s.confirmed_by || '—'}
                                 </td>
                               </tr>
