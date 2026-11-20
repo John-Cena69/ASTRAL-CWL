@@ -3,7 +3,9 @@ import {
   Database,
   Flag,
   ListChecks,
-  Users,  Shield,
+  Search,
+  Users,
+  Shield,
   Swords,
   X,
   Settings,
@@ -52,6 +54,7 @@ function normalizeTrackedClan(value: unknown): TrackedClan | null {
 }
 
 export const SIDEBAR_SECTIONS: SidebarSection[] = [
+  { title: 'Players', items: [{ key: 'playersearch', label: 'Player Search', icon: Search }] },
   { title: 'CWL', items: [
     { key: 'clans', label: 'Dashboard', icon: Flag },
     { key: 'entries', label: 'Entries', icon: ListChecks },
