@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Search,
+  ArrowLeft,
+  Flame,
   Copy,
   Check,
   ExternalLink,
@@ -114,6 +116,7 @@ interface PlayerSearchResponse {
 }
 
 const RECENT_SEARCHES_KEY = 'astral_recent_player_searches';
+const MAX_RECENT_SEARCHES = 10;
 
 function formatInGameRole(role: string | null): string {
   if (!role) return 'No Clan';
@@ -173,11 +176,12 @@ const HERO_MAX_BY_TH: Record<string, Record<number, number>> = {
     11: 50,
     12: 65,
     13: 75,
-    14: 80,
+    14: 85,
     15: 90,
     16: 95,
     17: 100,
-    18: 105,
+    18: 110,
+    19: 115,
   },
   'Archer Queen': {
     8: 10,
@@ -186,11 +190,12 @@ const HERO_MAX_BY_TH: Record<string, Record<number, number>> = {
     11: 50,
     12: 65,
     13: 75,
-    14: 80,
+    14: 85,
     15: 90,
     16: 95,
     17: 100,
-    18: 105,
+    18: 110,
+    19: 115,
   },
   'Minion Prince': {
     9: 10,
@@ -203,16 +208,18 @@ const HERO_MAX_BY_TH: Record<string, Record<number, number>> = {
     16: 80,
     17: 90,
     18: 95,
+    19: 100,
   },
   'Grand Warden': {
     11: 20,
     12: 40,
     13: 50,
-    14: 55,
+    14: 60,
     15: 65,
     16: 70,
     17: 75,
-    18: 80,
+    18: 85,
+    19: 90,
   },
   'Royal Champion': {
     13: 25,
@@ -221,12 +228,14 @@ const HERO_MAX_BY_TH: Record<string, Record<number, number>> = {
     16: 45,
     17: 50,
     18: 55,
+    19: 60,
   },
   'Dragon Duke': {
     15: 10,
     16: 15,
     17: 20,
     18: 25,
+    19: 30,
   },
 };
 
@@ -241,7 +250,7 @@ function getHeroMaxForTownHall(
   if (!table) return apiMaxLevel;
   const thCap = table[townHallLevel];
   if (!thCap) return apiMaxLevel;
-  return Math.max(currentLevel, Math.min(thCap, apiMaxLevel));
+  return Math.max(currentLevel, thCap);
 }
 
 export default function PlayerSearchPage() {
@@ -256,7 +265,7 @@ export default function PlayerSearchPage() {
       const raw = localStorage.getItem(RECENT_SEARCHES_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.slice(0, 6) : [];
+      return Array.isArray(parsed) ? parsed.slice(0, MAX_RECENT_SEARCHES) : [];
     } catch {
       return [];
     }
@@ -298,7 +307,7 @@ export default function PlayerSearchPage() {
       const next = [
         { tag, name },
         ...prev.filter((item) => item.tag.toUpperCase() !== tag.toUpperCase()),
-      ].slice(0, 6);
+      ].slice(0, MAX_RECENT_SEARCHES);
       try {
         localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next));
       } catch {
@@ -370,6 +379,7 @@ export default function PlayerSearchPage() {
     player?.leagueTier?.iconUrls?.small ||
     '/Unranked.webp';
   const leagueName = player?.league?.name || player?.leagueTier?.name || 'Unranked';
+  const isLegendLeague = /legend/i.test(leagueName);
 
   const clanInGameUrl = player?.clan
     ? `https://link.clashofclans.com/en?action=OpenClanProfile&tag=${encodeURIComponent(
@@ -383,92 +393,100 @@ export default function PlayerSearchPage() {
       )}`
     : null;
 
+  const handleBackToSearch = () => {
+    setData(null);
+    setError(null);
+    setShowDiscordPopup(false);
+  };
+
   return (
     <main className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 py-8 pb-20 space-y-6">
-      {/* Page Title & Search Bar */}
-      <div className="astral-card p-6 sm:p-8 shadow-xl shadow-space-950/60">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-          <div>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-astral-600 to-astral-800 border border-gold-400/30 flex items-center justify-center shadow-lg shadow-astral-950/60">
-                <Search className="w-5 h-5 text-gold-300" />
-              </div>
-              <div>
-                <h2 className="font-display text-2xl sm:text-3xl font-bold gold-text">
-                  Player Search
-                </h2>
-                <p className="text-xs sm:text-sm text-astral-200/70">
-                  Look up any Clash of Clans player tag for live stats, Discord link, and seasonal strike records
-                </p>
+      {/* Page Title & Search Bar — only shown when no player card is open */}
+      {!player && (
+        <div className="astral-card p-6 sm:p-8 shadow-xl shadow-space-950/60">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+            <div>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-astral-600 to-astral-800 border border-gold-400/30 flex items-center justify-center shadow-lg shadow-astral-950/60">
+                  <Search className="w-5 h-5 text-gold-300" />
+                </div>
+                <div>
+                  <h2 className="font-display text-2xl sm:text-3xl font-bold gold-text">
+                    Player Search
+                  </h2>
+                  <p className="text-xs sm:text-sm text-astral-200/70">
+                    Look up any Clash of Clans player tag for live stats, Discord link, and seasonal strike records
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
 
-          <form onSubmit={handleSubmit} className="flex items-center gap-2.5 w-full md:w-auto">
-            <div className="relative flex-1 md:w-72">
-              <Search className="w-4 h-4 text-astral-300/50 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Enter player tag (e.g. #2PP)"
-                className="astral-input w-full pl-10 pr-9 font-mono text-sm uppercase"
-                aria-label="Player Tag"
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-astral-300/50 hover:text-white rounded-md transition"
-                  title="Clear input"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="astral-btn-primary shrink-0 px-5"
-            >
-              {loading ? (
-                <>
-                  <LoaderCircle className="w-4 h-4 animate-spin" />
-                  <span>Searching...</span>
-                </>
-              ) : (
-                <>
-                  <Search className="w-4 h-4" />
-                  <span>Search</span>
-                </>
-              )}
-            </button>
-          </form>
-        </div>
-
-        {/* Recent Searches */}
-        {recentTags.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-astral-700/25 flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-astral-300/50 mr-1">
-              Recent:
-            </span>
-            {recentTags.map((item) => (
+            <form onSubmit={handleSubmit} className="flex items-center gap-2.5 w-full md:w-auto">
+              <div className="relative flex-1 md:w-72">
+                <Search className="w-4 h-4 text-astral-300/50 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Enter player tag (e.g. #2PP)"
+                  className="astral-input w-full pl-10 pr-9 font-mono text-sm uppercase"
+                  aria-label="Player Tag"
+                />
+                {query && (
+                  <button
+                    type="button"
+                    onClick={() => setQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-astral-300/50 hover:text-white rounded-md transition"
+                    title="Clear input"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
               <button
-                key={item.tag}
-                type="button"
-                onClick={() => {
-                  setQuery(item.tag);
-                  void executeSearch(item.tag);
-                }}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-space-900/70 hover:bg-astral-700/30 border border-astral-700/40 text-astral-200 hover:text-white transition"
+                type="submit"
+                disabled={loading}
+                className="astral-btn-primary shrink-0 px-5"
               >
-                <span className="font-medium text-white">{item.name}</span>
-                <span className="font-mono text-gold-400/80">{item.tag}</span>
+                {loading ? (
+                  <>
+                    <LoaderCircle className="w-4 h-4 animate-spin" />
+                    <span>Searching...</span>
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-4 h-4" />
+                    <span>Search</span>
+                  </>
+                )}
               </button>
-            ))}
+            </form>
           </div>
-        )}
-      </div>
+
+          {/* Recent Searches (Last 10) */}
+          {recentTags.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-astral-700/25 flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-astral-300/50 mr-1">
+                Recent ({recentTags.length}/{MAX_RECENT_SEARCHES}):
+              </span>
+              {recentTags.map((item) => (
+                <button
+                  key={item.tag}
+                  type="button"
+                  onClick={() => {
+                    setQuery(item.tag);
+                    void executeSearch(item.tag);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-space-900/70 hover:bg-astral-700/30 border border-astral-700/40 text-astral-200 hover:text-white transition"
+                >
+                  <span className="font-medium text-white">{item.name}</span>
+                  <span className="font-mono text-gold-400/80">{item.tag}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Error Alert */}
       {error && (
@@ -501,9 +519,25 @@ export default function PlayerSearchPage() {
         </div>
       )}
 
-      {/* Main Big Player Card */}
+      {/* Main Big Player Card with Top-Left Back Button */}
       {player && (
-        <article className="astral-card overflow-hidden shadow-2xl shadow-space-950/80 border border-astral-600/40">
+        <div className="space-y-3">
+          <div>
+            <button
+              type="button"
+              onClick={handleBackToSearch}
+              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-space-800/80 hover:bg-astral-700/35 text-astral-200 hover:text-white border border-astral-600/40 shadow-md transition"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Search Another Player</span>
+            </button>
+          </div>
+
+          <article
+            className={`astral-card overflow-hidden shadow-2xl shadow-space-950/80 border border-astral-600/40 ${
+              isLegendLeague ? 'legend-fire-aura' : ''
+            }`}
+          >
           {/* ─── Top Banner: Town Hall, Name/Tag, Discord Pill, Player Labels ─── */}
           <div className="relative p-6 sm:p-8 bg-gradient-to-br from-space-700/90 via-space-800/80 to-astral-950/60 border-b border-astral-700/40">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
@@ -789,24 +823,35 @@ export default function PlayerSearchPage() {
               )}
 
               {/* 2. Current League with Icon */}
-              <div className="flex flex-col justify-between p-4 rounded-2xl bg-space-900/70 border border-astral-700/30 shadow-lg">
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-astral-300/60">
-                    Current League
+              <div
+                className={`flex flex-col justify-between p-4 rounded-2xl bg-space-900/70 border border-astral-700/30 shadow-lg overflow-hidden ${
+                  isLegendLeague ? 'legend-fire-aura' : ''
+                }`}
+              >
+                <div className="relative z-10 flex items-center justify-between gap-2 mb-3">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-astral-300/60">
+                    <span>Current League</span>
+                    {isLegendLeague && <Flame className="w-3.5 h-3.5 text-orange-400 animate-pulse" />}
                   </span>
                   <span className="font-mono text-xs text-gold-300 font-semibold">
                     🏆 {player.trophies.toLocaleString()}
                   </span>
                 </div>
 
-                <div className="flex items-center gap-3.5">
+                <div className="relative z-10 flex items-center gap-3.5">
                   <img
                     src={leagueIconUrl}
                     alt={leagueName}
                     className="w-12 h-12 object-contain drop-shadow shrink-0"
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="font-display font-bold text-base text-white truncate">
+                    <p
+                      className={`font-display font-bold text-base truncate ${
+                        isLegendLeague
+                          ? 'bg-gradient-to-r from-amber-200 via-orange-300 to-rose-300 bg-clip-text text-transparent'
+                          : 'text-white'
+                      }`}
+                    >
                       {leagueName}
                     </p>
                     <p className="text-xs text-astral-300/70">
@@ -815,7 +860,7 @@ export default function PlayerSearchPage() {
                   </div>
                 </div>
 
-                <div className="mt-3 pt-2.5 border-t border-astral-700/25 flex items-center justify-between text-xs">
+                <div className="relative z-10 mt-3 pt-2.5 border-t border-astral-700/25 flex items-center justify-between text-xs">
                   <span className="text-astral-300/60">All-Time Best</span>
                   <span className="font-mono font-semibold text-astral-100">
                     {player.bestTrophies.toLocaleString()}
@@ -1196,7 +1241,8 @@ export default function PlayerSearchPage() {
               </div>
             )}
           </div>
-        </article>
+          </article>
+        </div>
       )}
     </main>
   );
