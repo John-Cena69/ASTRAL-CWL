@@ -533,11 +533,7 @@ export default function PlayerSearchPage() {
             </button>
           </div>
 
-          <article
-            className={`astral-card overflow-hidden shadow-2xl shadow-space-950/80 border border-astral-600/40 ${
-              isLegendLeague ? 'legend-fire-aura' : ''
-            }`}
-          >
+          <article className="astral-card overflow-hidden shadow-2xl shadow-space-950/80 border border-astral-600/40">
           {/* ─── Top Banner: Town Hall, Name/Tag, Discord Pill, Player Labels ─── */}
           <div className="relative p-6 sm:p-8 bg-gradient-to-br from-space-700/90 via-space-800/80 to-astral-950/60 border-b border-astral-700/40">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
