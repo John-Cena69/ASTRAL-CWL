@@ -9,6 +9,7 @@ import {
   getClan,
   getCurrentWar,
   getPlayer,
+  getPlayerProfile,
   toUnixSeconds,
 } from './_lib/coc.js';
 import { calculateFwaResult, getFwaPoints, lookupPoints } from './_lib/fwa.js';
@@ -3073,6 +3074,372 @@ async function handleStrikesReset(
   }
 }
 
+// GET /api/player-search?tag=#TAG — comprehensive player lookup from CoC API + Discord + Strikes
+async function handlePlayerSearch(
+  req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; query?: Record<string, string | string[] | undefined> },
+  res: { status: (code: number) => { json: (body: unknown) => void } }
+): Promise<void> {
+  if (req.method && req.method !== 'GET') {
+    send(res, 405, { ok: false, error: 'Use GET.' });
+    return;
+  }
+
+  const q = getQuery(req);
+  const rawTag = String(q.tag ?? '').trim();
+  if (!rawTag) {
+    send(res, 400, { ok: false, error: 'Player tag is required.' });
+    return;
+  }
+
+  const cleanTag = rawTag.toUpperCase().replace(/^#+/, '').replace(/O/g, '0');
+  if (!/^[0289CGJLPUVQRY]+$/.test(cleanTag) || cleanTag.length < 3) {
+    send(res, 400, { ok: false, error: 'Invalid Clash of Clans player tag.' });
+    return;
+  }
+
+  const playerTag = `#${cleanTag}`;
+  const tagVariants = [playerTag, cleanTag];
+
+  try {
+    let profile;
+    try {
+      profile = await getPlayerProfile(playerTag);
+    } catch (error) {
+      if (error instanceof CocNotFound) {
+        send(res, 404, { ok: false, error: `Player ${playerTag} not found in Clash of Clans.` });
+        return;
+      }
+      if (error instanceof CocMaintenance) {
+        send(res, 503, { ok: false, error: 'Clash of Clans API is currently under maintenance. Please try again later.' });
+        return;
+      }
+      throw error;
+    }
+
+    const supabase = adminClient();
+
+    // 1. Resolve Discord ID (from linked_players first, fallback to clan_players / strikes)
+    let discordId: string | null = null;
+    try {
+      const playerbase = playerbaseAdminClient();
+      const { data: linked } = await playerbase
+        .from('linked_players')
+        .select('player_tag, discord_id')
+        .in('player_tag', tagVariants);
+      for (const row of linked ?? []) {
+        const id = row.discord_id != null ? String(row.discord_id).trim() : '';
+        if (id) {
+          discordId = id;
+          break;
+        }
+      }
+    } catch {
+      // playerbase optional
+    }
+
+    // 2. Fetch strikes (current & past seasons) + family_clans + fallback discord_id
+    const [
+      { data: confirmedStrikes },
+      { data: archivedStrikes },
+      { data: familyClans },
+      { data: rosterRows },
+    ] = await Promise.all([
+      supabase
+        .from('strikes_confirmed')
+        .select('id, clan_tag, player_tag, player_name, discord_id, value, reason, note, issued_date, confirmed_date, confirmed_by, edited_by, is_active, season')
+        .in('player_tag', tagVariants)
+        .order('issued_date', { ascending: false }),
+      supabase
+        .from('strikes_archive')
+        .select('id, original_id, clan_tag, player_tag, player_name, discord_id, value, reason, note, issued_date, confirmed_date, confirmed_by, season, archived_at')
+        .in('player_tag', tagVariants)
+        .order('issued_date', { ascending: false }),
+      supabase
+        .from('family_clans')
+        .select('clan_tag, clan_name'),
+      supabase
+        .from('clan_players')
+        .select('discord_id')
+        .in('player_tag', tagVariants),
+    ]);
+
+    if (!discordId) {
+      for (const r of rosterRows ?? []) {
+        const id = r.discord_id != null ? String(r.discord_id).trim() : '';
+        if (id) {
+          discordId = id;
+          break;
+        }
+      }
+    }
+    if (!discordId) {
+      for (const s of [...(confirmedStrikes ?? []), ...(archivedStrikes ?? [])]) {
+        const id = s.discord_id != null ? String(s.discord_id).trim() : '';
+        if (id) {
+          discordId = id;
+          break;
+        }
+      }
+    }
+
+    // 3. If Discord ID found, resolve live Discord profile (nickname, username, avatar)
+    let discordProfile: {
+      discord_id: string;
+      nickname: string;
+      username: string;
+      avatar_url: string | null;
+    } | null = null;
+
+    if (discordId) {
+      const stripDiscrim = (val: unknown): string =>
+        typeof val === 'string' ? val.trim().replace(/#0$/, '') : '';
+      let username = '';
+      let nickname = '';
+      let avatarUrl: string | null = null;
+      const botToken = (process.env.DISCORD_BOT_TOKEN ?? '').trim();
+      const guildId = (process.env.DISCORD_GUILD_ID ?? '').trim() || CWL_DISCORD_GUILD_ID;
+
+      if (botToken && /^\d{15,22}$/.test(discordId)) {
+        let resolved = false;
+        if (guildId) {
+          try {
+            const memberResp = await fetch(
+              `https://discord.com/api/v10/guilds/${guildId}/members/${discordId}`,
+              { headers: { Authorization: `Bot ${botToken}` } }
+            );
+            if (memberResp.ok) {
+              const member = (await memberResp.json()) as Record<string, unknown>;
+              const dUser = (member.user ?? {}) as Record<string, unknown>;
+              const liveUsername = stripDiscrim(dUser.username);
+              const liveGlobalName =
+                typeof dUser.global_name === 'string' && dUser.global_name.trim()
+                  ? dUser.global_name.trim()
+                  : null;
+              const liveNick =
+                typeof member.nick === 'string' && member.nick.trim()
+                  ? member.nick.trim()
+                  : null;
+
+              if (liveUsername) username = liveUsername;
+              nickname = liveNick || liveGlobalName || liveUsername || discordId;
+
+              const memberAvatar =
+                typeof member.avatar === 'string' && member.avatar.trim()
+                  ? member.avatar.trim()
+                  : null;
+              const userAvatar =
+                typeof dUser.avatar === 'string' && dUser.avatar.trim()
+                  ? dUser.avatar.trim()
+                  : null;
+
+              if (memberAvatar) {
+                const ext = memberAvatar.startsWith('a_') ? 'gif' : 'png';
+                avatarUrl = `https://cdn.discordapp.com/guilds/${guildId}/users/${discordId}/avatars/${memberAvatar}.${ext}?size=256`;
+              } else if (userAvatar) {
+                const ext = userAvatar.startsWith('a_') ? 'gif' : 'png';
+                avatarUrl = `https://cdn.discordapp.com/avatars/${discordId}/${userAvatar}.${ext}?size=256`;
+              }
+              resolved = true;
+            }
+          } catch {
+            // fallback to global user lookup
+          }
+        }
+
+        if (!resolved) {
+          try {
+            const userResp = await fetch(`https://discord.com/api/v10/users/${discordId}`, {
+              headers: { Authorization: `Bot ${botToken}` },
+            });
+            if (userResp.ok) {
+              const dUser = (await userResp.json()) as Record<string, unknown>;
+              const liveUsername = stripDiscrim(dUser.username);
+              const liveGlobalName =
+                typeof dUser.global_name === 'string' && dUser.global_name.trim()
+                  ? dUser.global_name.trim()
+                  : null;
+              if (liveUsername) username = liveUsername;
+              nickname = liveGlobalName || liveUsername || discordId;
+
+              const userAvatar =
+                typeof dUser.avatar === 'string' && dUser.avatar.trim()
+                  ? dUser.avatar.trim()
+                  : null;
+              if (userAvatar) {
+                const ext = userAvatar.startsWith('a_') ? 'gif' : 'png';
+                avatarUrl = `https://cdn.discordapp.com/avatars/${discordId}/${userAvatar}.${ext}?size=256`;
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      if (!avatarUrl && /^\d{15,22}$/.test(discordId)) {
+        try {
+          const defaultIdx = Number((BigInt(discordId) >> 22n) % 6n);
+          avatarUrl = `https://cdn.discordapp.com/embed/avatars/${defaultIdx}.png`;
+        } catch {
+          avatarUrl = 'https://cdn.discordapp.com/embed/avatars/0.png';
+        }
+      }
+
+      discordProfile = {
+        discord_id: discordId,
+        nickname: nickname || username || discordId,
+        username: username || discordId,
+        avatar_url: avatarUrl,
+      };
+    }
+
+    // 4. Build clan tag -> name map for strikes
+    const clanNameMap = new Map<string, string>();
+    for (const c of familyClans ?? []) {
+      const t = String(c.clan_tag ?? '').trim().toUpperCase();
+      const name = String(c.clan_name ?? '').trim();
+      if (t && name) {
+        clanNameMap.set(t.startsWith('#') ? t : `#${t}`, name);
+        clanNameMap.set(t.replace(/^#+/, ''), name);
+      }
+    }
+
+    const resolveClanName = (cTag: unknown): string => {
+      const s = String(cTag ?? '').trim();
+      return clanNameMap.get(s.toUpperCase()) || s;
+    };
+
+    const currentSeasonStrikes = (confirmedStrikes ?? [])
+      .filter((s) => s.is_active !== false)
+      .map((s) => ({
+        id: s.id,
+        clan_tag: s.clan_tag,
+        clan_name: resolveClanName(s.clan_tag),
+        value: Number(s.value ?? 0),
+        reason: s.reason ?? '',
+        note: s.note ?? null,
+        issued_date: s.issued_date ?? null,
+        confirmed_by: s.confirmed_by ?? null,
+        edited_by: s.edited_by ?? null,
+      }));
+
+    const currentSeasonTotal = currentSeasonStrikes.reduce((acc, s) => acc + s.value, 0);
+
+    // Group past season strikes from strikes_archive + inactive strikes_confirmed (deduped by original_id)
+    const archivedOriginalIds = new Set(
+      (archivedStrikes ?? []).map((a) => String(a.original_id ?? '')).filter(Boolean)
+    );
+    const pastRaw = [
+      ...(archivedStrikes ?? []).map((a) => ({
+        id: a.id,
+        clan_tag: a.clan_tag,
+        clan_name: resolveClanName(a.clan_tag),
+        value: Number(a.value ?? 0),
+        reason: a.reason ?? '',
+        note: a.note ?? null,
+        issued_date: a.issued_date ?? null,
+        confirmed_by: a.confirmed_by ?? null,
+        season: String(a.season ?? 'Archived Season').trim() || 'Archived Season',
+      })),
+      ...(confirmedStrikes ?? [])
+        .filter((s) => s.is_active === false && !archivedOriginalIds.has(String(s.id)))
+        .map((s) => ({
+          id: s.id,
+          clan_tag: s.clan_tag,
+          clan_name: resolveClanName(s.clan_tag),
+          value: Number(s.value ?? 0),
+          reason: s.reason ?? '',
+          note: s.note ?? null,
+          issued_date: s.issued_date ?? null,
+          confirmed_by: s.confirmed_by ?? null,
+          season: String(s.season ?? 'Past Season').trim() || 'Past Season',
+        })),
+    ];
+
+    const pastSeasonsMap = new Map<
+      string,
+      {
+        season: string;
+        total: number;
+        strikes: typeof currentSeasonStrikes;
+      }
+    >();
+
+    for (const row of pastRaw) {
+      const existing = pastSeasonsMap.get(row.season);
+      const item = {
+        id: row.id,
+        clan_tag: row.clan_tag,
+        clan_name: row.clan_name,
+        value: row.value,
+        reason: row.reason,
+        note: row.note,
+        issued_date: row.issued_date,
+        confirmed_by: row.confirmed_by,
+        edited_by: null,
+      };
+      if (existing) {
+        existing.strikes.push(item);
+        existing.total += row.value;
+      } else {
+        pastSeasonsMap.set(row.season, {
+          season: row.season,
+          total: row.value,
+          strikes: [item],
+        });
+      }
+    }
+
+    // 5. Extract Friend in Need achievement
+    const finAchievement = (profile.achievements ?? []).find(
+      (a) => a.name.toLowerCase() === 'friend in need'
+    );
+
+    send(res, 200, {
+      ok: true,
+      player: {
+        tag: profile.tag,
+        name: profile.name,
+        townHallLevel: profile.townHallLevel,
+        townHallWeaponLevel: profile.townHallWeaponLevel ?? null,
+        expLevel: profile.expLevel ?? null,
+        trophies: profile.trophies ?? 0,
+        bestTrophies: profile.bestTrophies ?? 0,
+        warStars: profile.warStars ?? 0,
+        role: profile.role ?? null,
+        warPreference: profile.warPreference ?? null,
+        donations: profile.donations ?? 0,
+        donationsReceived: profile.donationsReceived ?? 0,
+        clan: profile.clan ?? null,
+        league: profile.league ?? null,
+        leagueTier: profile.leagueTier ?? null,
+        labels: profile.labels ?? [],
+        heroes: (profile.heroes ?? []).filter((h) => h.village === 'home'),
+        friendInNeed: finAchievement
+          ? {
+              value: finAchievement.value,
+              target: finAchievement.target,
+              stars: finAchievement.stars,
+            }
+          : null,
+      },
+      discord: discordProfile,
+      strikes: {
+        current_season: {
+          total: currentSeasonTotal,
+          strikes: currentSeasonStrikes,
+        },
+        past_seasons: Array.from(pastSeasonsMap.values()),
+      },
+    });
+  } catch (error) {
+    send(res, 500, {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Failed to search player.',
+    });
+  }
+}
+
 /* ───────────────────── route dispatch ───────────────────── */
 
 export default async function handler(req: unknown, res: {
@@ -3136,6 +3503,9 @@ export default async function handler(req: unknown, res: {
 
     // Route dispatch
     switch (path) {
+      case 'player-search':
+        await handlePlayerSearch(r, res);
+        break;
       case 'discord-profile':
         await handleDiscordProfile(r, res, auth);
         break;
