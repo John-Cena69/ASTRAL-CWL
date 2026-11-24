@@ -73,7 +73,7 @@ function isManagement(auth: AuthResult): boolean {
 }
 
 type AccessLevel = 'none' | 'view' | 'edit';
-type PageKey = 'cwl' | 'fillers' | 'wars' | 'clan_management' | 'clan_access' | 'roster' | 'clans' | 'accounts' | 'clan_home' | 'war_weights' | 'user_management';
+type PageKey = 'cwl' | 'fillers' | 'wars' | 'clan_management' | 'clan_access' | 'roster' | 'clans' | 'accounts' | 'clan_home' | 'war_weights' | 'strike_board' | 'strike_manager' | 'user_management';
 
 async function getClanPageAccessLevel(
   req: { url: string; headers: Record<string, string | string[] | undefined> },
@@ -488,7 +488,12 @@ async function handleAccessManagement(
       access_level: normalizeAccessLevel(p.access_level, p.allowed),
     }));
 
-    const roles = [...new Set((users ?? []).map((user) => user.role).filter(Boolean))];
+    const roles = [
+      ...new Set([
+        ...(users ?? []).map((user) => user.role).filter(Boolean),
+        ...normalizedPermissions.map((p) => p.role).filter(Boolean),
+      ]),
+    ];
     send(res, 200, {
       ok: true,
       users: enrichedUsers,
@@ -533,12 +538,81 @@ async function handleAccessManagement(
     send(res, 200, { ok: true });
     return;
   }
+  if (action === 'create_role') {
+    const role = String(body.role ?? '').trim();
+    if (!role) {
+      send(res, 400, { ok: false, error: 'Role name is required.' });
+      return;
+    }
+    const defaultLevel = normalizeAccessLevel(body.default_level, true);
+    const seedRows = (['cwl', 'fillers', 'wars', 'clan_management'] as const).map((pageKey) => ({
+      clan_tag: '*',
+      role,
+      page_key: pageKey,
+      allowed: pageKey === 'clan_management' ? false : defaultLevel !== 'none',
+      access_level: pageKey === 'clan_management' ? 'none' : defaultLevel,
+      updated_at: new Date().toISOString(),
+    }));
+    const { error } = await supabase
+      .from('page_permissions')
+      .upsert(seedRows, { onConflict: 'clan_tag,role,page_key' });
+    if (error) {
+      send(res, 500, { ok: false, error: error.message });
+      return;
+    }
+    send(res, 200, { ok: true, role });
+    return;
+  }
+  if (action === 'delete_role') {
+    const role = String(body.role ?? '').trim();
+    if (!role) {
+      send(res, 400, { ok: false, error: 'Role name is required.' });
+      return;
+    }
+    if (['developer', 'admin'].includes(role.toLowerCase())) {
+      send(res, 400, { ok: false, error: `Built-in role "${role}" cannot be deleted.` });
+      return;
+    }
+    const reassignTo = String(body.reassign_to ?? '').trim();
+    const { data: assignedUsers, error: checkErr } = await supabase
+      .from('allowed_user_ids')
+      .select('discord_user_id')
+      .eq('role', role);
+    if (checkErr) {
+      send(res, 500, { ok: false, error: checkErr.message });
+      return;
+    }
+    if ((assignedUsers?.length ?? 0) > 0) {
+      if (!reassignTo || reassignTo === role) {
+        send(res, 400, {
+          ok: false,
+          error: `${assignedUsers!.length} user(s) currently have the "${role}" role. Switch their role first or choose a replacement role.`,
+        });
+        return;
+      }
+      const { error: reassignErr } = await supabase
+        .from('allowed_user_ids')
+        .update({ role: reassignTo })
+        .eq('role', role);
+      if (reassignErr) {
+        send(res, 500, { ok: false, error: reassignErr.message });
+        return;
+      }
+    }
+    const { error: delPermErr } = await supabase.from('page_permissions').delete().eq('role', role);
+    if (delPermErr) {
+      send(res, 500, { ok: false, error: delPermErr.message });
+      return;
+    }
+    send(res, 200, { ok: true, deleted: role });
+    return;
+  }
   if (action === 'save_permission') {
     const clanTag = String(body.clan_tag ?? '').trim();
     const role = String(body.role ?? '').trim();
     const pageKey = String(body.page_key ?? '').trim();
     const accessLevel = normalizeAccessLevel(body.access_level, body.allowed);
-    if (!clanTag || !role || !['cwl', 'fillers', 'wars', 'clan_management', 'clan_access', 'roster', 'clans', 'accounts', 'clan_home', 'war_weights', 'user_management'].includes(pageKey)) {
+    if (!clanTag || !role || !['cwl', 'fillers', 'wars', 'clan_management', 'clan_access', 'roster', 'clans', 'accounts', 'clan_home', 'war_weights', 'strike_board', 'strike_manager', 'user_management'].includes(pageKey)) {
       send(res, 400, { ok: false, error: 'Clan, role, and a valid page are required.' });
       return;
     }
@@ -563,7 +637,7 @@ async function handleAccessManagement(
       ? body.clan_tags.map((tag) => String(tag).trim()).filter(Boolean)
       : [];
     const permissions = Array.isArray(body.permissions) ? body.permissions : [];
-    const pageKeys = ['cwl', 'fillers', 'wars', 'clan_management', 'clan_access', 'clan_home', 'war_weights'];
+    const pageKeys = ['cwl', 'fillers', 'wars', 'clan_management', 'clan_access', 'clan_home', 'war_weights', 'strike_board', 'strike_manager'];
     if (!role || clanTags.length === 0 || permissions.length === 0) {
       send(res, 400, { ok: false, error: 'Role, at least one clan scope, and permissions are required.' });
       return;
@@ -3791,10 +3865,14 @@ export default async function handler(req: unknown, res: {
         const body = r.method === 'POST' ? readJsonBody(r) : {};
         const strikeClanTag = String(q.clan_tag ?? body.clan_tag ?? '*').trim() || '*';
         const isRead = !r.method || r.method === 'GET';
+        const strikePageKey: PageKey =
+          q.action === 'confirmed' || q.action === 'resolve' || q.action === 'reduce' || q.action === 'edit_strike'
+            ? 'strike_board'
+            : 'strike_manager';
         if (!isManagement(auth)) {
           const allowed = isRead
-            ? await canAccessClanPage(r, strikeClanTag, 'clan_access')
-            : await canEditClanPage(r, strikeClanTag, 'clan_access');
+            ? await canAccessClanPage(r, strikeClanTag, strikePageKey)
+            : await canEditClanPage(r, strikeClanTag, strikePageKey);
           if (!allowed) {
             send(res, 403, {
               ok: false,

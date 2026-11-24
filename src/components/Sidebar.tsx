@@ -77,7 +77,7 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
   const [trackedClans, setTrackedClans] = useState<TrackedClan[]>([]);
   const [loading, setLoading] = useState(true);
   const [clansError, setClansError] = useState<string | null>(null);
-  const [clanPageAccess, setClanPageAccess] = useState<Record<string, boolean>>({});
+  const [clanPageAccess, setClanPageAccess] = useState<Record<string, boolean | Record<string, boolean>>>({});
   const [globalPageAccess, setGlobalPageAccess] = useState<Record<string, boolean>>({
     cwl: true,
     fillers: true,
@@ -126,20 +126,39 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
               : [];
             setTrackedClans(clans);
             const accessEntries = await Promise.all(clans.map(async (clan) => {
-              const access = await client.rpc('can_access_clan_page', {
-                requested_clan_tag: clan.clan_tag,
-                requested_page_key: 'clan_access',
-              });
-              return [clan.clan_tag, access.error ? true : access.data !== false] as const;
+              const keys = ['clan_home', 'war_weights', 'strike_board', 'strike_manager'] as const;
+              const results = await Promise.all(
+                keys.map(async (k) => {
+                  const res = await client.rpc('can_access_clan_page', {
+                    requested_clan_tag: clan.clan_tag,
+                    requested_page_key: k,
+                  });
+                  return [k, res.error ? true : res.data !== false] as const;
+                })
+              );
+              return [clan.clan_tag, Object.fromEntries(results)] as const;
             }));
             if (active) setClanPageAccess(Object.fromEntries(accessEntries));
             if (active && !initialNavigationSet.current) {
-              const firstClan = clans.find((clan) => accessEntries.find(([tag, allowed]) => tag === clan.clan_tag && allowed));
+              const firstClanEntry = clans.find((clan) => {
+                const map = accessEntries.find(([tag]) => tag === clan.clan_tag)?.[1];
+                return map && (map.clan_home || map.war_weights || map.strike_board || map.strike_manager);
+              });
+              const firstClanMap = firstClanEntry
+                ? accessEntries.find(([tag]) => tag === firstClanEntry.clan_tag)?.[1]
+                : null;
+              const firstClanSubPage = firstClanMap?.clan_home
+                ? 'home'
+                : firstClanMap?.war_weights
+                  ? 'war-weights'
+                  : firstClanMap?.strike_board
+                    ? 'strike-board'
+                    : 'strike-manager';
               const firstPage: PageKey | ClanPage | null =
                 globalAccess.find(([key, allowed]) => key === 'cwl' && allowed) ? 'clans'
                   : globalAccess.find(([key, allowed]) => key === 'fillers' && allowed) ? 'accounts'
                     : globalAccess.find(([key, allowed]) => key === 'wars' && allowed) ? 'wars'
-                      : firstClan ? clanPageKey(firstClan.clan_tag, firstClan.clan_name, 'home')
+                      : firstClanEntry ? clanPageKey(firstClanEntry.clan_tag, firstClanEntry.clan_name, firstClanSubPage)
                         : globalAccess.find(([key, allowed]) => key === 'clan_management' && allowed) ? 'developer'
                           : null;
               if (firstPage) {
@@ -185,18 +204,27 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
   }, [accessLoaded, onReady]);
 
   const buildClanSections = (): ClanSection[] => {
-    return trackedClans.map((clan) => ({
-      title: clan.clan_name,
-      clanTag: clan.clan_tag,
-      items: [
-        ...(clanPageAccess[clan.clan_tag] ? [
-          { key: `clan-home:${clan.clan_tag}`, label: 'Home', page: 'home' as const },
-          { key: `clan-weights:${clan.clan_tag}`, label: 'War Weights', page: 'war-weights' as const },
-          { key: `clan-strike-board:${clan.clan_tag}`, label: 'Strike Board', page: 'strike-board' as const },
-          { key: `clan-strike-manager:${clan.clan_tag}`, label: 'Strike Manager', page: 'strike-manager' as const },
-        ] : []),
-      ],
-    }));
+    return trackedClans.map((clan) => {
+      const access = clanPageAccess[clan.clan_tag] as unknown as
+        | { clan_home?: boolean; war_weights?: boolean; strike_board?: boolean; strike_manager?: boolean }
+        | boolean
+        | undefined;
+      const can = (key: 'clan_home' | 'war_weights' | 'strike_board' | 'strike_manager'): boolean => {
+        if (typeof access === 'boolean') return access;
+        if (access && typeof access === 'object') return access[key] !== false;
+        return true;
+      };
+      return {
+        title: clan.clan_name,
+        clanTag: clan.clan_tag,
+        items: [
+          ...(can('clan_home') ? [{ key: `clan-home:${clan.clan_tag}`, label: 'Home', page: 'home' as const }] : []),
+          ...(can('war_weights') ? [{ key: `clan-weights:${clan.clan_tag}`, label: 'War Weights', page: 'war-weights' as const }] : []),
+          ...(can('strike_board') ? [{ key: `clan-strike-board:${clan.clan_tag}`, label: 'Strike Board', page: 'strike-board' as const }] : []),
+          ...(can('strike_manager') ? [{ key: `clan-strike-manager:${clan.clan_tag}`, label: 'Strike Manager', page: 'strike-manager' as const }] : []),
+        ],
+      };
+    });
   };
 
   const clanSections = buildClanSections();
@@ -276,7 +304,7 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
                       </div>
                       <div className="space-y-0.5 ml-4">
                         {section.items.map((item) => {
-                          const active = activeHome && item.page === 'home' ? true : activeWeights && item.page === 'war-weights' ? true : false;
+                          const active = activeClanPage?.clanTag === section.clanTag && activeClanPage.page === item.page;
                           const page: ClanPage = clanPageKey(section.clanTag, section.title, item.page);
                           return (
                             <button
