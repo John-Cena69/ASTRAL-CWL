@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import {
+  Eye,
   Sparkles,
   LogIn,
   LogOut,
@@ -36,6 +37,7 @@ export default function App() {
     avatar_url: string | null;
   } | null>(null);
   const [activePage, setActivePage] = useState<ActivePage>('clans');
+  const [activeAccessLevel, setActiveAccessLevel] = useState<'none' | 'view' | 'edit'>('edit');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [sidebarReady, setSidebarReady] = useState(false);
@@ -56,6 +58,53 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!supabase || !allowedRole) {
+      setActiveAccessLevel('edit');
+      return;
+    }
+    let active = true;
+    const clanTag = isClanPage(activePage) ? activePage.clanTag : '*';
+    const pageKey = isClanPage(activePage)
+      ? activePage.page === 'war-weights'
+        ? 'war_weights'
+        : activePage.page === 'home'
+          ? 'clan_home'
+          : 'clan_access'
+      : activePage === 'developer'
+        ? 'clan_management'
+        : activePage === 'accounts'
+          ? 'fillers'
+          : activePage === 'wars'
+            ? 'wars'
+            : activePage === 'clans' || activePage === 'entries' || activePage === 'cwlroster'
+              ? 'cwl'
+              : null;
+
+    if (!pageKey) {
+      setActiveAccessLevel('edit');
+      return;
+    }
+
+    supabase
+      .rpc('get_clan_page_access_level', {
+        requested_clan_tag: clanTag,
+        requested_page_key: pageKey,
+      })
+      .then(({ data, error: rpcError }) => {
+        if (!active) return;
+        if (!rpcError && (data === 'none' || data === 'view' || data === 'edit')) {
+          setActiveAccessLevel(data);
+        } else {
+          setActiveAccessLevel('edit');
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [activePage, allowedRole]);
+
+  useEffect(() => {
     let active = true;
 
     if (!supabase) {
@@ -70,7 +119,9 @@ export default function App() {
       const { data, error: userError } = await client.auth.getUser();
       if (userError) {
         if (active) {
-          setError(`Could not verify your Discord login: ${userError.message}`);
+          if (!userError.message.toLowerCase().includes('auth session missing')) {
+            setError(`Could not verify your Discord login: ${userError.message}`);
+          }
           setAuthLoading(false);
         }
         return;
@@ -396,6 +447,18 @@ export default function App() {
             </div>
           </div>
         </section>
+      )}
+
+      {/* View-Only Access Banner */}
+      {activeAccessLevel === 'view' && (
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pt-4">
+          <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-200 text-xs sm:text-sm">
+            <Eye className="w-4 h-4 text-sky-300 shrink-0" />
+            <span>
+              <strong>View Only:</strong> Your role ({allowedRole}) can view this page, but editing and sync actions are restricted.
+            </span>
+          </div>
+        </div>
       )}
 
       {/* Active page */}
