@@ -32,7 +32,7 @@ function normalizePlayerTag(value: string): string {
   return `#${value.trim().replace(/^#+/, '').toUpperCase()}`;
 }
 
-export default function AccountsPage() {
+export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [accounts, setAccounts] = useState<FillerAccount[]>([]);
   const [clans, setClans] = useState<FamilyClan[]>([]);
   const [form, setForm] = useState(emptyForm);
@@ -280,20 +280,24 @@ export default function AccountsPage() {
           <p className="mt-1 text-sm text-astral-300/60">Track account ownership and clan placement.</p>
         </div>
         <div className="flex items-center gap-2 self-start md:self-auto">
-          <button onClick={() => setShowAddAccount((current) => !current)} className="astral-btn-primary" title="Add account">
-            <Plus className="w-4 h-4" /> Add account
-          </button>
+          {canEdit && (
+            <button onClick={() => setShowAddAccount((current) => !current)} className="astral-btn-primary" title="Add account">
+              <Plus className="w-4 h-4" /> Add account
+            </button>
+          )}
           <button onClick={() => void loadAccounts()} className="astral-btn-ghost" title="Refresh accounts">
             <RefreshCw className="w-4 h-4" /> Refresh
           </button>
-          <button onClick={() => void handleSync()} disabled={syncing} className="astral-btn-ghost" title="Fetch latest player data from the CoC API">
-            {syncing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            {syncing ? 'Syncing...' : 'Sync from CoC'}
-          </button>
+          {canEdit && (
+            <button onClick={() => void handleSync()} disabled={syncing} className="astral-btn-ghost" title="Fetch latest player data from the CoC API">
+              {syncing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {syncing ? 'Syncing...' : 'Sync from CoC'}
+            </button>
+          )}
         </div>
       </div>
 
-      {showAddAccount && (
+      {canEdit && showAddAccount && (
         <form onSubmit={handleSubmit} className="astral-card p-5 md:ml-auto md:max-w-xl">
           <div className="flex items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-2 text-gold-300 font-medium"><Plus className="w-4 h-4" /> Add account</div>
@@ -350,21 +354,23 @@ export default function AccountsPage() {
                     <td className="px-4 py-3 text-astral-100">{isEditing ? <input type="number" min="0" step="1" value={editingWeight} onChange={(event) => setEditingWeight(event.target.value)} onKeyDown={(event) => handleEditKeyDown(event, account.player_tag)} className="astral-input w-28 py-1.5" aria-label={`War weight for ${account.player_tag}`} /> : account.war_weight ?? '—'}</td>
                     <td className="px-4 py-3 text-astral-100">{isEditing ? <input maxLength={50} value={editingOwner} onChange={(event) => setEditingOwner(event.target.value.toUpperCase())} onKeyDown={(event) => handleEditKeyDown(event, account.player_tag)} className="astral-input w-36 py-1.5 uppercase" aria-label={`Owner for ${account.player_tag}`} /> : account.owner}</td>
                     <td className="px-4 py-3 text-right">
-                      <div className="inline-flex items-center gap-1">
-                        {isEditing ? (
-                          <>
-                            <button type="button" onClick={() => void saveWeight(account.player_tag)} disabled={isUpdating} className="p-2 text-emerald-300/80 hover:text-emerald-200 hover:bg-emerald-500/10 rounded-lg" title="Save account details">
-                              {isUpdating ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                            </button>
-                            <button type="button" onClick={cancelWeightEdit} className="p-2 text-astral-300/70 hover:text-white hover:bg-astral-700/30 rounded-lg" title="Cancel edit"><X className="w-4 h-4" /></button>
-                          </>
-                        ) : (
-                          <>
-                            <button type="button" onClick={() => startWeightEdit(account)} className="p-2 text-gold-300/70 hover:text-gold-200 hover:bg-gold-500/10 rounded-lg" title={`Edit account details for ${account.player_tag}`}><Edit2 className="w-4 h-4" /></button>
-                            <button type="button" onClick={() => void handleDelete(account.player_tag)} disabled={deletingTag === account.player_tag} className="p-2 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded-lg" title={`Delete ${account.player_tag}`}><Trash2 className="w-4 h-4" /></button>
-                          </>
-                        )}
-                      </div>
+                      {canEdit && (
+                        <div className="inline-flex items-center gap-1">
+                          {isEditing ? (
+                            <>
+                              <button type="button" onClick={() => void saveWeight(account.player_tag)} disabled={isUpdating} className="p-2 text-emerald-300/80 hover:text-emerald-200 hover:bg-emerald-500/10 rounded-lg" title="Save account details">
+                                {isUpdating ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                              </button>
+                              <button type="button" onClick={cancelWeightEdit} className="p-2 text-astral-300/70 hover:text-white hover:bg-astral-700/30 rounded-lg" title="Cancel edit"><X className="w-4 h-4" /></button>
+                            </>
+                          ) : (
+                            <>
+                              <button type="button" onClick={() => startWeightEdit(account)} className="p-2 text-gold-300/70 hover:text-gold-200 hover:bg-gold-500/10 rounded-lg" title={`Edit account details for ${account.player_tag}`}><Edit2 className="w-4 h-4" /></button>
+                              <button type="button" onClick={() => void handleDelete(account.player_tag)} disabled={deletingTag === account.player_tag} className="p-2 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded-lg" title={`Delete ${account.player_tag}`}><Trash2 className="w-4 h-4" /></button>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );

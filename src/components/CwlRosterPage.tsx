@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+﻿import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertCircle,
@@ -490,7 +490,7 @@ function AddPlayersModal({
   );
 }
 
-export default function CwlRosterPage() {
+export default function CwlRosterPage({ canEdit = true }: { canEdit?: boolean }) {
   const [data, setData] = useState<RosterData | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -871,74 +871,78 @@ export default function CwlRosterPage() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <div
-                      className="inline-flex rounded-xl border border-astral-700/40 p-0.5"
-                      role="group"
-                      aria-label="Roster size"
-                    >
-                      {[15, 30].map((size) => (
-                        <button
-                          key={size}
-                          type="button"
-                          disabled={busy || sc.roster_size === size}
-                          onClick={() =>
-                            void act({
-                              action: 'set_size',
-                              clan_tag: sc.clan_tag,
-                              roster_size: size,
-                            })
-                          }
-                          className={`px-3 py-1.5 text-sm rounded-lg transition ${
-                            sc.roster_size === size
-                              ? 'bg-gold-500/20 text-gold-200 font-semibold'
-                              : 'text-astral-200 hover:bg-white/5'
-                          }`}
+                    {canEdit && (
+                      <>
+                        <div
+                          className="inline-flex rounded-xl border border-astral-700/40 p-0.5"
+                          role="group"
+                          aria-label="Roster size"
                         >
-                          {size}
+                          {[15, 30].map((size) => (
+                            <button
+                              key={size}
+                              type="button"
+                              disabled={busy || sc.roster_size === size}
+                              onClick={() =>
+                                void act({
+                                  action: 'set_size',
+                                  clan_tag: sc.clan_tag,
+                                  roster_size: size,
+                                })
+                              }
+                              className={`px-3 py-1.5 text-sm rounded-lg transition ${
+                                sc.roster_size === size
+                                  ? 'bg-gold-500/20 text-gold-200 font-semibold'
+                                  : 'text-astral-200 hover:bg-white/5'
+                              }`}
+                            >
+                              {size}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={fillers.length === 0}
+                          onClick={() =>
+                            clan && setConfirm({ kind: 'autofill', clan, players: fillers })
+                          }
+                          className="astral-btn-ghost disabled:opacity-40"
+                          title={
+                            full
+                              ? `Roster is full (${roster.length}/${sc.roster_size})`
+                              : unassigned.length === 0
+                                ? 'No unassigned players left'
+                                : 'Fill empty slots with the highest-weight unassigned players'
+                          }
+                        >
+                          <Sparkles className="w-4 h-4" /> Auto-fill
                         </button>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      disabled={fillers.length === 0}
-                      onClick={() =>
-                        clan && setConfirm({ kind: 'autofill', clan, players: fillers })
-                      }
-                      className="astral-btn-ghost disabled:opacity-40"
-                      title={
-                        full
-                          ? `Roster is full (${roster.length}/${sc.roster_size})`
-                          : unassigned.length === 0
-                            ? 'No unassigned players left'
-                            : 'Fill empty slots with the highest-weight unassigned players'
-                      }
-                    >
-                      <Sparkles className="w-4 h-4" /> Auto-fill
-                    </button>
-                    <button
-                      type="button"
-                      disabled={full}
-                      onClick={() => {
-                        setError(null);
-                        setMessage(null);
-                        setAddingTo(sc.clan_tag);
-                      }}
-                      className={
-                        full
-                          ? 'astral-btn-ghost opacity-60 cursor-not-allowed'
-                          : 'astral-btn-primary'
-                      }
-                      title={
-                        full
-                          ? `Roster is full (${roster.length}/${sc.roster_size}). Remove a player or switch to 30 to add more.`
-                          : `Add players to ${clanLabel}`
-                      }
-                    >
-                      {full ? <Check className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
-                      {full
-                        ? 'Roster full'
-                        : `Add players${free < sc.roster_size ? ` (${free} open)` : ''}`}
-                    </button>
+                        <button
+                          type="button"
+                          disabled={full}
+                          onClick={() => {
+                            setError(null);
+                            setMessage(null);
+                            setAddingTo(sc.clan_tag);
+                          }}
+                          className={
+                            full
+                              ? 'astral-btn-ghost opacity-60 cursor-not-allowed'
+                              : 'astral-btn-primary'
+                          }
+                          title={
+                            full
+                              ? `Roster is full (${roster.length}/${sc.roster_size}). Remove a player or switch to 30 to add more.`
+                              : `Add players to ${clanLabel}`
+                          }
+                        >
+                          {full ? <Check className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+                          {full
+                            ? 'Roster full'
+                            : `Add players${free < sc.roster_size ? ` (${free} open)` : ''}`}
+                        </button>
+                      </>
+                    )}
                     {savingClans.has(sc.clan_tag) && (
                       <span
                         className="inline-flex items-center gap-1.5 text-xs text-astral-300/60"
@@ -1048,15 +1052,17 @@ export default function CwlRosterPage() {
                                 {entry.notes || '—'}
                               </td>
                               <td className="px-4 py-3 text-right">
-                                <button
-                                  type="button"
-                                  onClick={() => unassignPlayer(entry)}
-                                  className="p-2 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded-lg"
-                                  title="Unassign from this clan (keeps the CWL entry)"
-                                  aria-label={`Unassign ${entry.player_name}`}
-                                >
-                                  <X className="w-4 h-4" />
-                                </button>
+                                {canEdit && (
+                                  <button
+                                    type="button"
+                                    onClick={() => unassignPlayer(entry)}
+                                    className="p-2 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded-lg"
+                                    title="Unassign from this clan (keeps the CWL entry)"
+                                    aria-label={`Unassign ${entry.player_name}`}
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))}

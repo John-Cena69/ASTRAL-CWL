@@ -176,7 +176,7 @@ function syncErrorHint(error: unknown): string {
   return message;
 }
 
-export default function WarsPage() {
+export default function WarsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [wars, setWars] = useState<FamilyWar[]>([]);
   const [clans, setClans] = useState<Map<string, FamilyClan>>(new Map());
   const [syncState, setSyncState] = useState<'Low' | 'High'>('Low');
@@ -333,27 +333,31 @@ export default function WarsPage() {
               <p className="text-[11px] uppercase tracking-wide text-astral-300/50">FWA sync</p>
               <p className={`text-sm font-semibold ${syncState === 'High' ? 'text-emerald-300' : 'text-rose-300'}`}>{syncState}</p>
             </div>
-            <div className="flex rounded-lg border border-astral-700/40 bg-space-900/60 p-0.5" role="group" aria-label="FWA sync state">
-              {(['Low', 'High'] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => void updateSyncState(option)}
-                  disabled={syncSaving}
-                  className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${syncState === option ? option === 'High' ? 'bg-emerald-500/20 text-emerald-200' : 'bg-rose-500/20 text-rose-200' : 'text-astral-300/50 hover:text-astral-100'}`}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
+            {canEdit && (
+              <div className="flex rounded-lg border border-astral-700/40 bg-space-900/60 p-0.5" role="group" aria-label="FWA sync state">
+                {(['Low', 'High'] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => void updateSyncState(option)}
+                    disabled={syncSaving}
+                    className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${syncState === option ? option === 'High' ? 'bg-emerald-500/20 text-emerald-200' : 'bg-rose-500/20 text-rose-200' : 'text-astral-300/50 hover:text-astral-100'}`}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <button onClick={() => void loadWars()} className="astral-btn-ghost" title="Refresh wars">
             <RefreshCw className="w-4 h-4" /> Refresh
           </button>
-          <button onClick={() => void syncNow()} disabled={syncing} className="astral-btn-ghost" title="Fetch latest wars from the CoC API">
-            {syncing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            {syncing ? 'Syncing...' : 'Sync now'}
-          </button>
+          {canEdit && (
+            <button onClick={() => void syncNow()} disabled={syncing} className="astral-btn-ghost" title="Fetch latest wars from the CoC API">
+              {syncing ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {syncing ? 'Syncing...' : 'Sync now'}
+            </button>
+          )}
         </div>
       </div>
 

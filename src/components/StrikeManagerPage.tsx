@@ -84,9 +84,10 @@ interface PendingStrike {
 interface StrikeManagerPageProps {
   clanTag: string;
   clanName: string;
+  canEdit?: boolean;
 }
 
-export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPageProps) {
+export default function StrikeManagerPage({ clanTag, clanName, canEdit = true }: StrikeManagerPageProps) {
   const [roster, setRoster] = useState<ClanRosterPlayer[]>([]);
   const [globalReasons, setGlobalReasons] = useState<StrikeReason[]>([]);
   const [overrides, setOverrides] = useState<ClanOverride[]>([]);
@@ -650,6 +651,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
       )}
 
       {/* === Issue Strike Batch Form === */}
+      {canEdit && (
       <section className="astral-card overflow-hidden">
         <div className="px-6 py-4 border-b border-astral-700/30 flex items-center justify-between gap-4">
           <div>
@@ -808,6 +810,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
           </button>
         </div>
       </section>
+      )}
 
       {showPicker && (
         <StrikePlayerPicker
@@ -987,23 +990,27 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
                         <td className="px-4 py-3 text-astral-300/60">{s.note || '—'}</td>
                         <td className="px-4 py-3 text-astral-100 font-mono text-xs">{formatDate(s.issued_date)}</td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => startEdit(s)}
-                            disabled={!s.id}
-                            className="p-1.5 text-gold-300/80 hover:text-gold-200 hover:bg-gold-500/10 rounded"
-                            title="Edit"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeFromBatch(idx)}
-                            className="p-1.5 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded"
-                            title="Remove from batch"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {canEdit && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(s)}
+                                disabled={!s.id}
+                                className="p-1.5 text-gold-300/80 hover:text-gold-200 hover:bg-gold-500/10 rounded"
+                                title="Edit"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeFromBatch(idx)}
+                                className="p-1.5 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded"
+                                title="Remove from batch"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
                         </td>
                       </>
                     )}
@@ -1012,6 +1019,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
               </tbody>
             </table>
           </div>
+          {canEdit && (
           <div className="px-6 py-4 border-t border-astral-700/30 flex justify-end gap-2">
             <button
               onClick={handleClearPending}
@@ -1029,10 +1037,12 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
               {confirming ? 'Confirming...' : 'Confirm Batch'}
             </button>
           </div>
+          )}
         </section>
       )}
 
       {/* === Strike Config (Per-Clan Overrides + Custom) === */}
+      {canEdit && (
       <section className="astral-card overflow-hidden">
         <div className="px-6 py-4 border-b border-astral-700/30 flex items-center justify-between">
           <div>
@@ -1177,6 +1187,7 @@ export default function StrikeManagerPage({ clanTag, clanName }: StrikeManagerPa
           </div>
         </div>
       </section>
+      )}
     </main>
   );
 }

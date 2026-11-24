@@ -34,6 +34,7 @@ const STATUS_STYLES: Record<string, string> = {
 interface ClanHomePageProps {
   clanTag: string;
   clanName: string;
+  canEdit?: boolean;
 }
 
 /**
@@ -81,7 +82,7 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
-export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
+export default function ClanHomePage({ clanTag, clanName, canEdit = true }: ClanHomePageProps) {
   console.log('[ClanHomePage] clanTag prop:', clanTag, 'clanName prop:', clanName);
 
   // Fallback: read clan_tag from URL query params (?clan_tag=#TAG)
@@ -399,6 +400,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
             Website roster validated against the current in-game roster. Join Date is hidden but drives Days in Clan.
           </p>
         </div>
+        {canEdit && (
         <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
           <button
             onClick={() => {
@@ -438,6 +440,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
             <Plus className="w-4 h-4" /> Add Player
           </button>
         </div>
+        )}
       </div>
 
       {error && (
@@ -513,7 +516,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
         </div>
       )}
 
-      {showAddPlayer && (
+      {canEdit && showAddPlayer && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -595,7 +598,7 @@ export default function ClanHomePage({ clanTag, clanName }: ClanHomePageProps) {
                           roles={ROLE_OPTIONS}
                           values={editingValues[player.id]}
                           onChange={(field, value) => updateEditingValue(player.id, field, value)}
-                          onDelete={() => setPendingDeleteTag(player.player_tag)}
+                          onDelete={canEdit ? () => setPendingDeleteTag(player.player_tag) : undefined}
                           isDeleting={deletingTag === player.player_tag}
                         />
                       ) : (

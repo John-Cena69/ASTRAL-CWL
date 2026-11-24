@@ -439,7 +439,7 @@ function TableRolePicker({
   );
 }
 
-export default function ClansPage() {
+export default function ClansPage({ canEdit = true }: { canEdit?: boolean }) {
   const [clans, setClans] = useState<CwlClan[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [showAdd, setShowAdd] = useState(false);
@@ -992,10 +992,14 @@ export default function ClansPage() {
               <div
                 key={item.key}
                 onClick={() => {
-                  if (enabled !== null && !isSaving) void toggleSetting(item.key);
+                  if (canEdit && enabled !== null && !isSaving) void toggleSetting(item.key);
                 }}
                 className={`group relative overflow-hidden rounded-2xl border p-5 transition-all duration-200 ${
-                  enabled === null || isSaving ? 'cursor-wait' : 'cursor-pointer'
+                  !canEdit
+                    ? 'cursor-default'
+                    : enabled === null || isSaving
+                      ? 'cursor-wait'
+                      : 'cursor-pointer'
                 } ${
                   isOn
                     ? 'border-emerald-500/35 bg-gradient-to-br from-emerald-500/[0.09] via-space-800/80 to-space-800/80 shadow-lg shadow-emerald-950/20 hover:border-emerald-400/50'
@@ -1117,28 +1121,32 @@ export default function ClansPage() {
                   Past seasons ({rosterData?.past_seasons.length})
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => openSeasonDialog('rename_season')}
-                className="astral-btn-ghost text-xs"
-                title="Rename active season"
-              >
-                <Pencil className="w-3.5 h-3.5" /> Rename
-              </button>
-              <button
-                type="button"
-                onClick={() => openSeasonDialog('new_season')}
-                className="astral-btn-ghost text-xs text-gold-200 border-gold-400/30 hover:bg-gold-500/10"
-              >
-                <Plus className="w-3.5 h-3.5" /> New season
-              </button>
-              <button
-                type="button"
-                onClick={() => openSeasonDialog('close_season')}
-                className="astral-btn-ghost text-xs text-rose-200 hover:border-rose-500/40 hover:bg-rose-500/10"
-              >
-                <X className="w-3.5 h-3.5" /> Close season
-              </button>
+              {canEdit && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => openSeasonDialog('rename_season')}
+                    className="astral-btn-ghost text-xs"
+                    title="Rename active season"
+                  >
+                    <Pencil className="w-3.5 h-3.5" /> Rename
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openSeasonDialog('new_season')}
+                    className="astral-btn-ghost text-xs text-gold-200 border-gold-400/30 hover:bg-gold-500/10"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> New season
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openSeasonDialog('close_season')}
+                    className="astral-btn-ghost text-xs text-rose-200 hover:border-rose-500/40 hover:bg-rose-500/10"
+                  >
+                    <X className="w-3.5 h-3.5" /> Close season
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -1679,35 +1687,37 @@ export default function ClansPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 self-start md:self-auto">
-            <button
-              type="button"
-              onClick={() => setShowAdd((current) => !current)}
-              className="astral-btn-primary text-sm"
-              title="Add clan"
-              aria-expanded={showAdd}
-            >
-              <Plus className="w-4 h-4" />
-              {showAdd ? 'Close add panel' : 'Add clan'}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleRefreshAll()}
-              disabled={deletingTag === '__refresh__'}
-              className="astral-btn-ghost text-sm"
-              title="Re-fetch all clans from the CoC API"
-            >
-              {deletingTag === '__refresh__' ? (
-                <LoaderCircle className="w-4 h-4 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4" />
-              )}
-              {deletingTag === '__refresh__' ? 'Refreshing...' : 'Refresh all'}
-            </button>
-          </div>
+          {canEdit && (
+            <div className="flex items-center gap-2.5 self-start md:self-auto">
+              <button
+                type="button"
+                onClick={() => setShowAdd((current) => !current)}
+                className="astral-btn-primary text-sm"
+                title="Add clan"
+                aria-expanded={showAdd}
+              >
+                <Plus className="w-4 h-4" />
+                {showAdd ? 'Close add panel' : 'Add clan'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleRefreshAll()}
+                disabled={deletingTag === '__refresh__'}
+                className="astral-btn-ghost text-sm"
+                title="Re-fetch all clans from the CoC API"
+              >
+                {deletingTag === '__refresh__' ? (
+                  <LoaderCircle className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+                {deletingTag === '__refresh__' ? 'Refreshing...' : 'Refresh all'}
+              </button>
+            </div>
+          )}
         </div>
 
-        {showAdd && (
+        {canEdit && showAdd && (
           <form
             onSubmit={handleAdd}
             className="astral-card p-5 border-gold-400/30 bg-gradient-to-br from-space-800/90 to-space-900/90 shadow-xl"
@@ -1829,23 +1839,25 @@ export default function ClansPage() {
                       )}
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPendingDelete(clan.clan_tag);
-                        setError(null);
-                        setMessage(null);
-                      }}
-                      disabled={deletingTag === clan.clan_tag}
-                      className="p-2 text-astral-300/40 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg shrink-0 transition"
-                      title={`Remove ${clan.clan_tag}`}
-                    >
-                      {deletingTag === clan.clan_tag ? (
-                        <LoaderCircle className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
-                      )}
-                    </button>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingDelete(clan.clan_tag);
+                          setError(null);
+                          setMessage(null);
+                        }}
+                        disabled={deletingTag === clan.clan_tag}
+                        className="p-2 text-astral-300/40 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg shrink-0 transition"
+                        title={`Remove ${clan.clan_tag}`}
+                      >
+                        {deletingTag === clan.clan_tag ? (
+                          <LoaderCircle className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </button>
+                    )}
                   </div>
 
                   <div className="bg-space-900/35 border-t border-astral-700/20 divide-y divide-astral-700/15">

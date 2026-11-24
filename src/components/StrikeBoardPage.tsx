@@ -54,6 +54,7 @@ interface StrikeRow {
 interface StrikeBoardPageProps {
   clanTag: string;
   clanName: string;
+  canEdit?: boolean;
 }
 
 function CopyButton({ value }: { value: string }) {
@@ -86,7 +87,7 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
-export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPageProps) {
+export default function StrikeBoardPage({ clanTag, clanName, canEdit = true }: StrikeBoardPageProps) {
   const [strikes, setStrikes] = useState<StrikeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
@@ -407,20 +408,24 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
             {loading ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Clock className="w-4 h-4" />}
             {loading ? 'Loading...' : 'Refresh'}
           </button>
-          <button
-            onClick={handleMonthlyReduction}
-            disabled={reducing}
-            className="astral-btn-ghost text-xs" title="Monthly Strike Reduction (-1 all)">
-            {reducing ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
-            Monthly Reduction
-          </button>
-          <button
-            onClick={handleClanGamesReduction}
-            disabled={reducing}
-            className="astral-btn-ghost text-xs" title="Clan Games Reduction">
-            {reducing ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
-            Clan Games
-          </button>
+          {canEdit && (
+            <>
+              <button
+                onClick={handleMonthlyReduction}
+                disabled={reducing}
+                className="astral-btn-ghost text-xs" title="Monthly Strike Reduction (-1 all)">
+                {reducing ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
+                Monthly Reduction
+              </button>
+              <button
+                onClick={handleClanGamesReduction}
+                disabled={reducing}
+                className="astral-btn-ghost text-xs" title="Clan Games Reduction">
+                {reducing ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
+                Clan Games
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -619,28 +624,32 @@ export default function StrikeBoardPage({ clanTag, clanName }: StrikeBoardPagePr
                                 )}
                               </td>
                               <td className="px-4 py-3 text-right w-12">
-                                <button
-                                  type="button"
-                                  onClick={() => void startEdit(s)}
-                                  disabled={resolvingId === s.id}
-                                  className="p-2 text-gold-300/70 hover:text-gold-200 hover:bg-gold-500/10 rounded-lg transition"
-                                  title="Edit strike"
-                                >
-                                  <Edit2 className="w-4 h-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => void resolveStrike(s.id)}
-                                  disabled={resolvingId === s.id}
-                                  className="p-2 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded-lg transition"
-                                  title={`Resolve strike ${s.id.slice(0, 8)}`}
-                                >
-                                  {resolvingId === s.id ? (
-                                    <LoaderCircle className="w-4 h-4 animate-spin" />
-                                  ) : (
-                                    <Trash2 className="w-4 h-4" />
-                                  )}
-                                </button>
+                                {canEdit && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => void startEdit(s)}
+                                      disabled={resolvingId === s.id}
+                                      className="p-2 text-gold-300/70 hover:text-gold-200 hover:bg-gold-500/10 rounded-lg transition"
+                                      title="Edit strike"
+                                    >
+                                      <Edit2 className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void resolveStrike(s.id)}
+                                      disabled={resolvingId === s.id}
+                                      className="p-2 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 rounded-lg transition"
+                                      title={`Resolve strike ${s.id.slice(0, 8)}`}
+                                    >
+                                      {resolvingId === s.id ? (
+                                        <LoaderCircle className="w-4 h-4 animate-spin" />
+                                      ) : (
+                                        <Trash2 className="w-4 h-4" />
+                                      )}
+                                    </button>
+                                  </>
+                                )}
                               </td>
                             </>
                           )}

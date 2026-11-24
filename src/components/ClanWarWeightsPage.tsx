@@ -27,6 +27,7 @@ function formatDate(iso: string | null): string {
 interface ClanWarWeightsPageProps {
   clanTag: string;
   clanName: string;
+  canEdit?: boolean;
 }
 
 function CopyButton({ value }: { value: string }) {
@@ -59,7 +60,7 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
-export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeightsPageProps) {
+export default function ClanWarWeightsPage({ clanTag, clanName, canEdit = true }: ClanWarWeightsPageProps) {
   console.log('[ClanWarWeightsPage] clanTag prop:', clanTag, 'clanName prop:', clanName);
 
   // Fallback: read clan_tag from URL query params (?clan_tag=#TAG)
@@ -228,6 +229,7 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
             Edit values directly in the table, then save all changes together. WAR WEIGHT = VALUE × 5.
           </p>
         </div>
+        {canEdit && (
         <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
           <button
             onClick={() => void syncWeights()}
@@ -253,6 +255,7 @@ export default function ClanWarWeightsPage({ clanTag, clanName }: ClanWarWeights
             {saving ? 'Saving...' : editingMode && hasChanges ? 'Save Changes' : 'Edit'}
           </button>
         </div>
+        )}
       </div>
 
       {error && (

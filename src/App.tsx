@@ -464,19 +464,19 @@ export default function App() {
       {/* Active page */}
       {isClanPage(activePage)
         ? activePage.page === 'war-weights'
-          ? <ClanWarWeightsPage clanTag={activePage.clanTag} clanName={activePage.clanName} />
+          ? <ClanWarWeightsPage clanTag={activePage.clanTag} clanName={activePage.clanName} canEdit={activeAccessLevel === 'edit'} />
           : activePage.page === 'strike-board'
-            ? <StrikeBoardPage clanTag={activePage.clanTag} clanName={activePage.clanName} />
+            ? <StrikeBoardPage clanTag={activePage.clanTag} clanName={activePage.clanName} canEdit={activeAccessLevel === 'edit'} />
             : activePage.page === 'strike-manager'
-              ? <StrikeManagerPage clanTag={activePage.clanTag} clanName={activePage.clanName} />
-              : <ClanHomePage clanTag={activePage.clanTag} clanName={activePage.clanName} />
+              ? <StrikeManagerPage clanTag={activePage.clanTag} clanName={activePage.clanName} canEdit={activeAccessLevel === 'edit'} />
+              : <ClanHomePage clanTag={activePage.clanTag} clanName={activePage.clanName} canEdit={activeAccessLevel === 'edit'} />
         : activePage === 'developer' ? <DeveloperDashboard />
         : activePage === 'playersearch' ? <PlayerSearchPage />
-        : activePage === 'accounts' ? <AccountsPage />
-        : activePage === 'wars' ? <WarsPage />
-        : activePage === 'clans' ? <ClansPage />
-        : activePage === 'entries' ? <EntriesPage />
-        : activePage === 'cwlroster' ? <CwlRosterPage />
+        : activePage === 'accounts' ? <AccountsPage canEdit={activeAccessLevel === 'edit'} />
+        : activePage === 'wars' ? <WarsPage canEdit={activeAccessLevel === 'edit'} />
+        : activePage === 'clans' ? <ClansPage canEdit={activeAccessLevel === 'edit'} />
+        : activePage === 'entries' ? <EntriesPage canEdit={activeAccessLevel === 'edit'} />
+        : activePage === 'cwlroster' ? <CwlRosterPage canEdit={activeAccessLevel === 'edit'} />
         : null}
 
       {/* Footer */}

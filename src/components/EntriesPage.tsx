@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+﻿import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertCircle,
@@ -190,7 +190,7 @@ function formatDateParts(value: string): { date: string; time: string } | null {
   };
 }
 
-export default function EntriesPage() {
+export default function EntriesPage({ canEdit = true }: { canEdit?: boolean }) {
   const [entries, setEntries] = useState<CwlEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -764,24 +764,26 @@ export default function EntriesPage() {
 
                       {/* Actions */}
                       <td className="pl-2 pr-4 py-3.5 text-right whitespace-nowrap">
-                        <div className="inline-flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => openEdit(entry)}
-                            className="p-2 text-astral-300/70 hover:text-gold-300 hover:bg-gold-500/10 border border-transparent hover:border-gold-400/25 rounded-lg transition"
-                            title={`Edit ${entry.player_name}`}
-                            aria-label={`Edit ${entry.player_name}`}
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => { setPendingDelete(entry); setError(null); setMessage(null); }}
-                            className="p-2 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/25 rounded-lg transition"
-                            title={`Remove ${entry.player_name}`}
-                            aria-label={`Remove ${entry.player_name}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                        {canEdit && (
+                          <div className="inline-flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => openEdit(entry)}
+                              className="p-2 text-astral-300/70 hover:text-gold-300 hover:bg-gold-500/10 border border-transparent hover:border-gold-400/25 rounded-lg transition"
+                              title={`Edit ${entry.player_name}`}
+                              aria-label={`Edit ${entry.player_name}`}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => { setPendingDelete(entry); setError(null); setMessage(null); }}
+                              className="p-2 text-rose-300/70 hover:text-rose-200 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/25 rounded-lg transition"
+                              title={`Remove ${entry.player_name}`}
+                              aria-label={`Remove ${entry.player_name}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
