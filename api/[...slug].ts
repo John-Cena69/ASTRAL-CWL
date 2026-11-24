@@ -72,22 +72,48 @@ function isManagement(auth: AuthResult): boolean {
   return auth.ok === true && ['Developer', 'Admin'].includes(auth.role ?? '');
 }
 
-async function canAccessClanPage(
+type AccessLevel = 'none' | 'view' | 'edit';
+type PageKey = 'cwl' | 'fillers' | 'wars' | 'clan_management' | 'clan_access' | 'roster' | 'clans' | 'accounts' | 'clan_home' | 'war_weights' | 'user_management';
+
+async function getClanPageAccessLevel(
   req: { url: string; headers: Record<string, string | string[] | undefined> },
   clanTag: string,
-  pageKey: 'cwl' | 'fillers' | 'wars' | 'clan_management' | 'clan_access' | 'roster' | 'clans' | 'accounts' | 'clan_home' | 'war_weights' | 'user_management'
-): Promise<boolean> {
+  pageKey: PageKey
+): Promise<AccessLevel> {
   const authHeader = getHeader(req, 'authorization');
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  if (!token || !URL || !ANON_KEY) return false;
+  if (!token || !URL || !ANON_KEY) return 'none';
   const client = createClient(URL, ANON_KEY, {
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
-  const { data, error } = await client.rpc('can_access_clan_page', {
+  const { data, error } = await client.rpc('get_clan_page_access_level', {
     requested_clan_tag: clanTag,
     requested_page_key: pageKey,
   });
-  return !error && data === true;
+  if (!error && (data === 'none' || data === 'view' || data === 'edit')) {
+    return data;
+  }
+  const fallback = await client.rpc('can_access_clan_page', {
+    requested_clan_tag: clanTag,
+    requested_page_key: pageKey,
+  });
+  return !fallback.error && fallback.data === true ? 'edit' : 'none';
+}
+
+async function canAccessClanPage(
+  req: { url: string; headers: Record<string, string | string[] | undefined> },
+  clanTag: string,
+  pageKey: PageKey
+): Promise<boolean> {
+  return (await getClanPageAccessLevel(req, clanTag, pageKey)) !== 'none';
+}
+
+async function canEditClanPage(
+  req: { url: string; headers: Record<string, string | string[] | undefined> },
+  clanTag: string,
+  pageKey: PageKey
+): Promise<boolean> {
+  return (await getClanPageAccessLevel(req, clanTag, pageKey)) === 'edit';
 }
 /* ───────────────────── body helpers ───────────────────── */
 
@@ -291,6 +317,122 @@ async function handleTrackedClans(req: { method?: string; url: string; headers: 
   send(res, 405, { ok: false, error: 'Use GET, POST, or DELETE.' });
 }
 
+interface DiscordProfileSummary {
+  discord_id: string;
+  nickname: string;
+  username: string;
+  avatar_url: string | null;
+}
+
+async function lookupDiscordProfile(discordId: string): Promise<DiscordProfileSummary> {
+  const cleanId = discordId.trim();
+  const stripDiscrim = (val: unknown): string =>
+    typeof val === 'string' ? val.trim().replace(/#0$/, '') : '';
+  let username = '';
+  let nickname = '';
+  let avatarUrl: string | null = null;
+  const botToken = (process.env.DISCORD_BOT_TOKEN ?? '').trim();
+  const guildId = (process.env.DISCORD_GUILD_ID ?? '').trim() || '1285884592107720776';
+
+  if (botToken && /^\d{15,22}$/.test(cleanId)) {
+    let resolved = false;
+    if (guildId) {
+      try {
+        const memberResp = await fetch(
+          `https://discord.com/api/v10/guilds/${guildId}/members/${cleanId}`,
+          { headers: { Authorization: `Bot ${botToken}` } }
+        );
+        if (memberResp.ok) {
+          const member = (await memberResp.json()) as Record<string, unknown>;
+          const dUser = (member.user ?? {}) as Record<string, unknown>;
+          const liveUsername = stripDiscrim(dUser.username);
+          const liveGlobalName =
+            typeof dUser.global_name === 'string' && dUser.global_name.trim()
+              ? dUser.global_name.trim()
+              : null;
+          const liveNick =
+            typeof member.nick === 'string' && member.nick.trim()
+              ? member.nick.trim()
+              : null;
+
+          if (liveUsername) username = liveUsername;
+          nickname = liveNick || liveGlobalName || liveUsername || cleanId;
+
+          const memberAvatar =
+            typeof member.avatar === 'string' && member.avatar.trim()
+              ? member.avatar.trim()
+              : null;
+          const userAvatar =
+            typeof dUser.avatar === 'string' && dUser.avatar.trim()
+              ? dUser.avatar.trim()
+              : null;
+
+          if (memberAvatar) {
+            const ext = memberAvatar.startsWith('a_') ? 'gif' : 'png';
+            avatarUrl = `https://cdn.discordapp.com/guilds/${guildId}/users/${cleanId}/avatars/${memberAvatar}.${ext}?size=256`;
+          } else if (userAvatar) {
+            const ext = userAvatar.startsWith('a_') ? 'gif' : 'png';
+            avatarUrl = `https://cdn.discordapp.com/avatars/${cleanId}/${userAvatar}.${ext}?size=256`;
+          }
+          resolved = true;
+        }
+      } catch {
+        // fallback to global user lookup
+      }
+    }
+
+    if (!resolved) {
+      try {
+        const userResp = await fetch(`https://discord.com/api/v10/users/${cleanId}`, {
+          headers: { Authorization: `Bot ${botToken}` },
+        });
+        if (userResp.ok) {
+          const dUser = (await userResp.json()) as Record<string, unknown>;
+          const liveUsername = stripDiscrim(dUser.username);
+          const liveGlobalName =
+            typeof dUser.global_name === 'string' && dUser.global_name.trim()
+              ? dUser.global_name.trim()
+              : null;
+          if (liveUsername) username = liveUsername;
+          nickname = liveGlobalName || liveUsername || cleanId;
+
+          const userAvatar =
+            typeof dUser.avatar === 'string' && dUser.avatar.trim()
+              ? dUser.avatar.trim()
+              : null;
+          if (userAvatar) {
+            const ext = userAvatar.startsWith('a_') ? 'gif' : 'png';
+            avatarUrl = `https://cdn.discordapp.com/avatars/${cleanId}/${userAvatar}.${ext}?size=256`;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  if (!avatarUrl && /^\d{15,22}$/.test(cleanId)) {
+    try {
+      const defaultIdx = Number((BigInt(cleanId) >> 22n) % 6n);
+      avatarUrl = `https://cdn.discordapp.com/embed/avatars/${defaultIdx}.png`;
+    } catch {
+      avatarUrl = 'https://cdn.discordapp.com/embed/avatars/0.png';
+    }
+  }
+
+  return {
+    discord_id: cleanId,
+    nickname: nickname || username || cleanId,
+    username: username || cleanId,
+    avatar_url: avatarUrl,
+  };
+}
+
+function normalizeAccessLevel(rawLevel: unknown, rawAllowed?: unknown): AccessLevel {
+  if (rawLevel === 'none' || rawLevel === 'view' || rawLevel === 'edit') return rawLevel;
+  return rawAllowed === false ? 'none' : 'edit';
+}
+
 // GET/POST /api/access-management — manage allowlisted roles and per-clan page rules
 async function handleAccessManagement(
   req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown },
@@ -303,18 +445,57 @@ async function handleAccessManagement(
   }
   const supabase = adminClient();
   if (req.method === 'GET') {
-    const [{ data: users, error: usersError }, { data: clans, error: clansError }, { data: permissions, error: permissionsError }] = await Promise.all([
+    const [{ data: users, error: usersError }, { data: clans, error: clansError }] = await Promise.all([
       supabase.from('allowed_user_ids').select('discord_user_id, role, created_at').order('created_at'),
       supabase.from('family_clans').select('clan_tag, clan_name').order('clan_name'),
-      supabase.from('page_permissions').select('clan_tag, role, page_key, allowed').order('clan_tag'),
     ]);
+
+    let permissions: { clan_tag: string; role: string; page_key: string; allowed: boolean; access_level?: string }[] | null = null;
+    let permissionsError: { message: string } | null = null;
+    const permRes = await supabase
+      .from('page_permissions')
+      .select('clan_tag, role, page_key, allowed, access_level')
+      .order('clan_tag');
+    if (permRes.error) {
+      const fallbackRes = await supabase
+        .from('page_permissions')
+        .select('clan_tag, role, page_key, allowed')
+        .order('clan_tag');
+      permissions = fallbackRes.data;
+      permissionsError = fallbackRes.error;
+    } else {
+      permissions = permRes.data;
+    }
+
     const error = usersError || clansError || permissionsError;
     if (error) {
       send(res, 500, { ok: false, error: error.message });
       return;
     }
+
+    const enrichedUsers = await Promise.all(
+      (users ?? []).map(async (user) => ({
+        ...user,
+        discord: await lookupDiscordProfile(String(user.discord_user_id ?? '')),
+      }))
+    );
+
+    const normalizedPermissions = (permissions ?? []).map((p) => ({
+      clan_tag: p.clan_tag,
+      role: p.role,
+      page_key: p.page_key,
+      allowed: p.allowed,
+      access_level: normalizeAccessLevel(p.access_level, p.allowed),
+    }));
+
     const roles = [...new Set((users ?? []).map((user) => user.role).filter(Boolean))];
-    send(res, 200, { ok: true, users: users ?? [], clans: clans ?? [], permissions: permissions ?? [], roles });
+    send(res, 200, {
+      ok: true,
+      users: enrichedUsers,
+      clans: clans ?? [],
+      permissions: normalizedPermissions,
+      roles,
+    });
     return;
   }
   if (req.method !== 'POST') {
@@ -338,10 +519,25 @@ async function handleAccessManagement(
     send(res, 200, { ok: true });
     return;
   }
+  if (action === 'delete_user') {
+    const discordUserId = String(body.discord_user_id ?? '').trim();
+    if (!discordUserId) {
+      send(res, 400, { ok: false, error: 'Discord user ID is required.' });
+      return;
+    }
+    const { error } = await supabase.from('allowed_user_ids').delete().eq('discord_user_id', discordUserId);
+    if (error) {
+      send(res, 500, { ok: false, error: error.message });
+      return;
+    }
+    send(res, 200, { ok: true });
+    return;
+  }
   if (action === 'save_permission') {
     const clanTag = String(body.clan_tag ?? '').trim();
     const role = String(body.role ?? '').trim();
     const pageKey = String(body.page_key ?? '').trim();
+    const accessLevel = normalizeAccessLevel(body.access_level, body.allowed);
     if (!clanTag || !role || !['cwl', 'fillers', 'wars', 'clan_management', 'clan_access', 'roster', 'clans', 'accounts', 'clan_home', 'war_weights', 'user_management'].includes(pageKey)) {
       send(res, 400, { ok: false, error: 'Clan, role, and a valid page are required.' });
       return;
@@ -350,7 +546,8 @@ async function handleAccessManagement(
       clan_tag: clanTag,
       role,
       page_key: pageKey,
-      allowed: body.allowed === true,
+      allowed: accessLevel !== 'none',
+      access_level: accessLevel,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'clan_tag,role,page_key' });
     if (error) {
@@ -366,7 +563,7 @@ async function handleAccessManagement(
       ? body.clan_tags.map((tag) => String(tag).trim()).filter(Boolean)
       : [];
     const permissions = Array.isArray(body.permissions) ? body.permissions : [];
-    const pageKeys = ['cwl', 'fillers', 'wars', 'clan_management', 'clan_access'];
+    const pageKeys = ['cwl', 'fillers', 'wars', 'clan_management', 'clan_access', 'clan_home', 'war_weights'];
     if (!role || clanTags.length === 0 || permissions.length === 0) {
       send(res, 400, { ok: false, error: 'Role, at least one clan scope, and permissions are required.' });
       return;
@@ -378,11 +575,13 @@ async function handleAccessManagement(
         const row = permission as Record<string, unknown>;
         const pageKey = String(row.page_key ?? '');
         if (!pageKeys.includes(pageKey)) continue;
+        const accessLevel = normalizeAccessLevel(row.access_level, row.allowed);
         rows.push({
           clan_tag: clanTag,
           role,
           page_key: pageKey,
-          allowed: row.allowed === true,
+          allowed: accessLevel !== 'none',
+          access_level: accessLevel,
           updated_at: new Date().toISOString(),
         });
       }
@@ -473,8 +672,8 @@ async function handleSyncClanRoster(req: { method?: string; url: string; headers
   try {
     const supabase = adminClient();
     const resolvedClanTag = await resolveClanTag(supabase, clanTagRaw);
-    if (!await canAccessClanPage(req, resolvedClanTag, 'clan_home')) {
-      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+    if (!await canEditClanPage(req, resolvedClanTag, 'clan_home')) {
+      send(res, 403, { ok: false, error: 'You only have view access to this clan page.' });
       return;
     }
 
@@ -610,8 +809,8 @@ async function handleEditClanPlayer(req: { method?: string; url: string; headers
   try {
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
-    if (!await canAccessClanPage(req, clanTag, 'clan_home')) {
-      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+    if (!await canEditClanPage(req, clanTag, 'clan_home')) {
+      send(res, 403, { ok: false, error: 'You only have view access to this clan page.' });
       return;
     }
     const playerTag = `#${playerTagRaw.toUpperCase().replace(/^#+/, '')}`;
@@ -707,8 +906,8 @@ async function handleEditClanPlayers(req: { method?: string; url: string; header
   try {
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
-    if (!await canAccessClanPage(req, clanTag, 'clan_home')) {
-      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+    if (!await canEditClanPage(req, clanTag, 'clan_home')) {
+      send(res, 403, { ok: false, error: 'You only have view access to this clan page.' });
       return;
     }
     const now = new Date();
@@ -772,6 +971,10 @@ async function handleAddClanPlayer(req: { method?: string; url: string; headers:
   try {
     const supabase = adminClient();
     const resolvedClanTag = await resolveClanTag(supabase, clanTagRaw);
+    if (!await canEditClanPage(req, resolvedClanTag, 'clan_home')) {
+      send(res, 403, { ok: false, error: 'You only have view access to this clan page.' });
+      return;
+    }
     const playerTag = `#${cleanPlayer}`;
 
     // Ensure the clan exists in family_clans (foreign key parent)
@@ -862,8 +1065,8 @@ async function handleDeleteClanPlayer(req: { method?: string; url: string; heade
   try {
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
-    if (!await canAccessClanPage(req, clanTag, 'clan_home')) {
-      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+    if (!await canEditClanPage(req, clanTag, 'clan_home')) {
+      send(res, 403, { ok: false, error: 'You only have view access to this clan page.' });
       return;
     }
     const playerTag = `#${playerTagRaw.toUpperCase().replace(/^#+/, '')}`;
@@ -902,7 +1105,7 @@ async function handleWarWeights(req: { method?: string; url: string; headers: Re
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, rawTag);
     if (!await canAccessClanPage(req, clanTag, 'war_weights')) {
-      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+      send(res, 403, { ok: false, error: 'You do not have access to war weights.' });
       return;
     }
     const { data, error } = await supabase
@@ -938,8 +1141,8 @@ async function handleSyncWarWeights(req: { method?: string; url: string; headers
   try {
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
-    if (!await canAccessClanPage(req, clanTag, 'war_weights')) {
-      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+    if (!await canEditClanPage(req, clanTag, 'war_weights')) {
+      send(res, 403, { ok: false, error: 'You only have view access to war weights.' });
       return;
     }
     let war;
@@ -1059,8 +1262,8 @@ async function handleEditWarWeight(req: { method?: string; url: string; headers:
   try {
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
-    if (!await canAccessClanPage(req, clanTag, 'clan_home')) {
-      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+    if (!await canEditClanPage(req, clanTag, 'war_weights')) {
+      send(res, 403, { ok: false, error: 'You only have view access to war weights.' });
       return;
     }
     const playerTag = `#${playerTagRaw.toUpperCase().replace(/^#+/, '')}`;
@@ -1142,8 +1345,8 @@ async function handleEditWarWeights(req: { method?: string; url: string; headers
   try {
     const supabase = adminClient();
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
-    if (!await canAccessClanPage(req, clanTag, 'war_weights')) {
-      send(res, 403, { ok: false, error: 'You do not have access to this clan page.' });
+    if (!await canEditClanPage(req, clanTag, 'war_weights')) {
+      send(res, 403, { ok: false, error: 'You only have view access to war weights.' });
       return;
     }
     const now = new Date().toISOString();
@@ -1360,8 +1563,8 @@ async function handleSyncSettings(req: { method?: string; url: string; headers: 
     send(res, 405, { ok: false, error: 'Use POST.' });
     return;
   }
-  if (!auth.ok || !await canAccessClanPage(req, '*', 'wars')) {
-    send(res, 403, { ok: false, error: 'Wars access is required to change the FWA sync state.' });
+  if (!auth.ok || !await canEditClanPage(req, '*', 'wars')) {
+    send(res, 403, { ok: false, error: 'Wars edit access is required to change the FWA sync state.' });
     return;
   }
   const body = readJsonBody(req);
@@ -3492,11 +3695,18 @@ export default async function handler(req: unknown, res: {
       'cwl-roster': 'cwl',
       'sync-fillers': 'fillers',
       'sync-wars': 'wars',
+      sync: 'wars',
     };
     const globalPage = globalPageByPath[path];
     if (globalPage && !(auth.ok && auth.role === 'Developer' && !getHeader(r, 'authorization'))) {
-      if (!await canAccessClanPage(r, '*', globalPage)) {
+      const accessLevel = await getClanPageAccessLevel(r, '*', globalPage);
+      const isReadMethod = !r.method || r.method === 'GET' || r.method === 'HEAD';
+      if (accessLevel === 'none') {
         send(res, 403, { ok: false, error: 'You do not have access to this page.' });
+        return;
+      }
+      if (!isReadMethod && accessLevel !== 'edit') {
+        send(res, 403, { ok: false, error: 'You only have view access to this page.' });
         return;
       }
     }
@@ -3576,8 +3786,26 @@ export default async function handler(req: unknown, res: {
           await handleStrikeConfigClan(r, res, auth);
         }
         break;
-      case 'strikes':
-        switch (getQuery(r).action) {
+      case 'strikes': {
+        const q = getQuery(r);
+        const body = r.method === 'POST' ? readJsonBody(r) : {};
+        const strikeClanTag = String(q.clan_tag ?? body.clan_tag ?? '*').trim() || '*';
+        const isRead = !r.method || r.method === 'GET';
+        if (!isManagement(auth)) {
+          const allowed = isRead
+            ? await canAccessClanPage(r, strikeClanTag, 'clan_access')
+            : await canEditClanPage(r, strikeClanTag, 'clan_access');
+          if (!allowed) {
+            send(res, 403, {
+              ok: false,
+              error: isRead
+                ? 'You do not have access to clan strikes.'
+                : 'You only have view access to clan strikes.',
+            });
+            break;
+          }
+        }
+        switch (q.action) {
           case 'pending':
             await handleStrikesPending(r, res, auth);
             break;
@@ -3615,11 +3843,12 @@ export default async function handler(req: unknown, res: {
             send(res, 404, { ok: false, error: `Unknown strikes action: ${getQuery(r).action}` });
         }
         break;
+      }
       default:
         send(res, 404, { ok: false, error: `Not found. Path: ${path || '(empty)'}` });
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    send(res, 500, { ok: false, error: message, stack: error instanceof Error ? error.stack : undefined });
+    send(res, 500, { ok: false, error: message });
   }
 }
