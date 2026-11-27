@@ -83,6 +83,7 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
     fillers: true,
     wars: true,
     clan_management: false,
+    audit_log: false,
   });
   const [accessLoaded, setAccessLoaded] = useState(false);
   const initialNavigationSet = useRef(false);
@@ -101,7 +102,7 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
         return;
       }
       const client = supabase;
-      const globalKeys = ['cwl', 'fillers', 'wars', 'clan_management'];
+      const globalKeys = ['cwl', 'fillers', 'wars', 'clan_management', 'audit_log'];
       const globalAccess = await Promise.all(globalKeys.map(async (pageKey) => {
         const result = await client.rpc('can_access_clan_page', { requested_clan_tag: '*', requested_page_key: pageKey });
         return [pageKey, result.error ? true : result.data !== false] as const;
@@ -159,7 +160,7 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
                   : globalAccess.find(([key, allowed]) => key === 'fillers' && allowed) ? 'accounts'
                     : globalAccess.find(([key, allowed]) => key === 'wars' && allowed) ? 'wars'
                       : firstClanEntry ? clanPageKey(firstClanEntry.clan_tag, firstClanEntry.clan_name, firstClanSubPage)
-                        : globalAccess.find(([key, allowed]) => key === 'clan_management' && allowed) ? 'developer'
+                        : globalAccess.find(([key, allowed]) => (key === 'clan_management' || key === 'audit_log') && allowed) ? 'developer'
                           : null;
               if (firstPage) {
                 initialNavigationSet.current = true;
@@ -340,14 +341,14 @@ export default function Sidebar({ open, activePage, onNavigate, onInitialNavigat
         </nav>
 
         {/* Management section */}
-        {accessLoaded && globalPageAccess.clan_management && (
+        {accessLoaded && (globalPageAccess.clan_management || globalPageAccess.audit_log) && (
           <div className="px-3 pb-4 border-t border-astral-700/30 mt-auto">
             <button
               onClick={() => onNavigate('developer')}
               className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium text-astral-300/60 hover:text-white hover:bg-astral-700/20 transition"
             >
               <Settings className="w-4 h-4" />
-              <span>Clan Management</span>
+              <span>{globalPageAccess.clan_management ? 'Clan Management' : 'Audit Log'}</span>
             </button>
           </div>
         )}

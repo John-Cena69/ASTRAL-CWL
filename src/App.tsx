@@ -472,7 +472,7 @@ export default function App() {
             : activePage.page === 'strike-manager'
               ? <StrikeManagerPage clanTag={activePage.clanTag} clanName={activePage.clanName} canEdit={activeAccessLevel === 'edit'} />
               : <ClanHomePage clanTag={activePage.clanTag} clanName={activePage.clanName} canEdit={activeAccessLevel === 'edit'} />
-        : activePage === 'developer' ? <DeveloperDashboard />
+        : activePage === 'developer' ? <DeveloperDashboard allowedRole={allowedRole} />
         : activePage === 'playersearch' ? <PlayerSearchPage />
         : activePage === 'accounts' ? <AccountsPage canEdit={activeAccessLevel === 'edit'} />
         : activePage === 'wars' ? <WarsPage canEdit={activeAccessLevel === 'edit'} />

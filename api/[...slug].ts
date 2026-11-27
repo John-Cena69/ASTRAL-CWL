@@ -1,6 +1,8 @@
 // api/[...slug].ts — Single catch-all serverless function
 // Replaces 13 individual API files to stay under Vercel Hobby's 12-function limit.
 // All frontend fetch URLs stay exactly the same.
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import {
   CocMaintenance,
@@ -15,42 +17,159 @@ import {
 import { calculateFwaResult, getFwaPoints, lookupPoints } from './_lib/fwa.js';
 import { playerbaseAdminClient } from './_lib/backend.js';
 
-/* ───────────────────── config ───────────────────── */
+/* ───────────────────── config & audit context ───────────────────── */
 
 const URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 const CRON_SECRET = process.env.CRON_SECRET || '';
 
-function adminClient(): SupabaseClient {
+interface AuditContext {
+  requestId: string;
+  action: string;
+  skip: boolean;
+  revertOf?: number;
+  discordId?: string;
+  name?: string;
+  username?: string;
+  role?: string;
+  avatarUrl?: string;
+}
+
+const auditStorage = new AsyncLocalStorage<AuditContext>();
+
+function b64(value?: string): string {
+  return value ? Buffer.from(value, 'utf8').toString('base64') : '';
+}
+
+function buildAuditHeaders(extra?: { skip?: boolean; revertOf?: number; action?: string }): Record<string, string> {
+  const ctx = auditStorage.getStore();
+  if (!ctx) return {};
+  if (extra?.skip ?? ctx.skip) return { 'x-audit-skip': '1' };
+  const headers: Record<string, string> = {
+    'x-audit-request-id': ctx.requestId,
+    'x-audit-action': extra?.action || ctx.action,
+  };
+  if (ctx.discordId) headers['x-audit-actor-id'] = ctx.discordId;
+  if (ctx.name) headers['x-audit-actor-name'] = b64(ctx.name);
+  if (ctx.username) headers['x-audit-actor-username'] = b64(ctx.username);
+  if (ctx.role) headers['x-audit-actor-role'] = ctx.role;
+  if (ctx.avatarUrl) headers['x-audit-actor-avatar'] = ctx.avatarUrl;
+  const revertOf = extra?.revertOf ?? ctx.revertOf;
+  if (revertOf) headers['x-audit-revert-of'] = String(revertOf);
+  return headers;
+}
+
+function setAuditAction(action: string, extra?: { skip?: boolean }): void {
+  const ctx = auditStorage.getStore();
+  if (!ctx) return;
+  ctx.action = action;
+  if (extra?.skip !== undefined) ctx.skip = extra.skip;
+}
+
+function rawAdminClient(headers?: Record<string, string>): SupabaseClient {
   const missing: string[] = [];
   if (!URL) missing.push('SUPABASE_URL');
   if (!SERVICE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
   if (missing.length > 0) {
     throw new Error(`Missing server env vars: ${missing.join(', ')}. Set them in Vercel Project Settings → Environment Variables.`);
   }
-  return createClient(URL, SERVICE_KEY);
+  return createClient(URL, SERVICE_KEY, headers && Object.keys(headers).length > 0 ? { global: { headers } } : undefined);
+}
+
+function adminClient(extra?: { skip?: boolean; revertOf?: number; action?: string }): SupabaseClient {
+  return rawAdminClient(buildAuditHeaders(extra));
 }
 
 /* ───────────────────── auth ───────────────────── */
 
-type AuthResult = { ok: true; role?: string } | { ok: false; message: string };
+interface AuthUserSummary {
+  discordId?: string;
+  name?: string;
+  username?: string;
+  avatarUrl?: string;
+}
+
+type AuthResult =
+  | { ok: true; role?: string; isCron?: boolean; user?: AuthUserSummary }
+  | { ok: false; message: string };
+
+const discordNickCache = new Map<string, { name: string; username: string; avatarUrl: string | null; at: number }>();
 
 function getHeader(req: { url: string; headers: Record<string, string | string[] | undefined> }, name: string): string {
   const value = req.headers[name];
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
 }
 
+async function resolveAuthUser(token: string): Promise<AuthUserSummary> {
+  try {
+    const { data } = await rawAdminClient().auth.getUser(token);
+    const u = data?.user;
+    if (!u) return {};
+    const meta = (u.user_metadata ?? {}) as Record<string, unknown>;
+    const identity = u.identities?.find((id) => id.provider === 'discord');
+    const idData = (identity?.identity_data ?? {}) as Record<string, unknown>;
+    const claims = (meta.custom_claims ?? idData.custom_claims ?? {}) as Record<string, unknown>;
+    const clean = (v: unknown) => (typeof v === 'string' ? v.trim().replace(/#0$/, '') : '');
+    const discordId = String(
+      meta.provider_id ?? identity?.id ?? idData.provider_id ?? idData.sub ?? meta.sub ?? ''
+    ).trim();
+    let username = clean(meta.user_name || idData.username || meta.name);
+    let name =
+      clean(meta.discord_nickname) ||
+      clean(claims.global_name) ||
+      clean(meta.full_name) ||
+      clean(idData.full_name) ||
+      username;
+    let avatarUrl =
+      (typeof meta.avatar_url === 'string' && meta.avatar_url.trim()) ||
+      (typeof idData.avatar_url === 'string' && idData.avatar_url.trim()) ||
+      undefined;
+
+    if (discordId && /^\d{15,22}$/.test(discordId)) {
+      const cached = discordNickCache.get(discordId);
+      if (cached && Date.now() - cached.at < 15 * 60 * 1000) {
+        name = cached.name || name;
+        username = cached.username || username;
+        avatarUrl = cached.avatarUrl || avatarUrl;
+      } else if (process.env.DISCORD_BOT_TOKEN) {
+        try {
+          const live = await lookupDiscordProfile(discordId);
+          if (live.nickname && live.nickname !== discordId) name = live.nickname;
+          if (live.username && live.username !== discordId) username = live.username;
+          if (live.avatar_url) avatarUrl = live.avatar_url;
+          discordNickCache.set(discordId, {
+            name: name || discordId,
+            username: username || discordId,
+            avatarUrl: avatarUrl ?? null,
+            at: Date.now(),
+          });
+        } catch {
+          // fall back to OAuth metadata
+        }
+      }
+    }
+    return {
+      discordId: discordId || undefined,
+      name: name || username || u.email || u.id,
+      username: username || undefined,
+      avatarUrl,
+    };
+  } catch {
+    return {};
+  }
+}
+
 async function authorize(req: { url: string; headers: Record<string, string | string[] | undefined> }): Promise<AuthResult> {
   const supplied = getHeader(req, 'x-cron-secret');
-  if (CRON_SECRET && supplied && supplied === CRON_SECRET) return { ok: true, role: 'Developer' };
+  if (CRON_SECRET && supplied && supplied === CRON_SECRET) return { ok: true, role: 'Developer', isCron: true };
 
   const authHeader = getHeader(req, 'authorization');
   const token =
     authHeader.startsWith('Bearer ') && authHeader.slice(7) !== CRON_SECRET
       ? authHeader.slice(7)
       : '';
-  if (CRON_SECRET && authHeader === `Bearer ${CRON_SECRET}`) return { ok: true, role: 'Developer' };
+  if (CRON_SECRET && authHeader === `Bearer ${CRON_SECRET}`) return { ok: true, role: 'Developer', isCron: true };
   if (!token) return { ok: false, message: 'Unauthorized.' };
   if (!URL || !ANON_KEY) return { ok: false, message: 'Server Supabase env missing.' };
 
@@ -61,7 +180,9 @@ async function authorize(req: { url: string; headers: Record<string, string | st
   if (error || !data) {
     return { ok: false, message: 'Forbidden: your Discord account is not allowlisted.' };
   }
-  return { ok: true, role: typeof data === 'string' ? data : undefined };
+  const isRead = !(req as { method?: string }).method || (req as { method?: string }).method === 'GET' || (req as { method?: string }).method === 'HEAD';
+  const user = isRead ? undefined : await resolveAuthUser(token);
+  return { ok: true, role: typeof data === 'string' ? data : undefined, user };
 }
 
 function isDeveloper(auth: AuthResult): boolean {
@@ -73,7 +194,7 @@ function isManagement(auth: AuthResult): boolean {
 }
 
 type AccessLevel = 'none' | 'view' | 'edit';
-type PageKey = 'cwl' | 'fillers' | 'wars' | 'clan_management' | 'clan_access' | 'roster' | 'clans' | 'accounts' | 'clan_home' | 'war_weights' | 'strike_board' | 'strike_manager' | 'user_management';
+type PageKey = 'cwl' | 'fillers' | 'wars' | 'clan_management' | 'clan_access' | 'roster' | 'clans' | 'accounts' | 'clan_home' | 'war_weights' | 'strike_board' | 'strike_manager' | 'user_management' | 'audit_log';
 
 async function getClanPageAccessLevel(
   req: { url: string; headers: Record<string, string | string[] | undefined> },
@@ -545,12 +666,12 @@ async function handleAccessManagement(
       return;
     }
     const defaultLevel = normalizeAccessLevel(body.default_level, true);
-    const seedRows = (['cwl', 'fillers', 'wars', 'clan_management'] as const).map((pageKey) => ({
+    const seedRows = (['cwl', 'fillers', 'wars', 'clan_management', 'audit_log'] as const).map((pageKey) => ({
       clan_tag: '*',
       role,
       page_key: pageKey,
-      allowed: pageKey === 'clan_management' ? false : defaultLevel !== 'none',
-      access_level: pageKey === 'clan_management' ? 'none' : defaultLevel,
+      allowed: pageKey === 'clan_management' || pageKey === 'audit_log' ? false : defaultLevel !== 'none',
+      access_level: pageKey === 'clan_management' || pageKey === 'audit_log' ? 'none' : defaultLevel,
       updated_at: new Date().toISOString(),
     }));
     const { error } = await supabase
@@ -612,7 +733,7 @@ async function handleAccessManagement(
     const role = String(body.role ?? '').trim();
     const pageKey = String(body.page_key ?? '').trim();
     const accessLevel = normalizeAccessLevel(body.access_level, body.allowed);
-    if (!clanTag || !role || !['cwl', 'fillers', 'wars', 'clan_management', 'clan_access', 'roster', 'clans', 'accounts', 'clan_home', 'war_weights', 'strike_board', 'strike_manager', 'user_management'].includes(pageKey)) {
+    if (!clanTag || !role || !['cwl', 'fillers', 'wars', 'clan_management', 'clan_access', 'roster', 'clans', 'accounts', 'clan_home', 'war_weights', 'strike_board', 'strike_manager', 'user_management', 'audit_log'].includes(pageKey)) {
       send(res, 400, { ok: false, error: 'Clan, role, and a valid page are required.' });
       return;
     }
@@ -637,7 +758,7 @@ async function handleAccessManagement(
       ? body.clan_tags.map((tag) => String(tag).trim()).filter(Boolean)
       : [];
     const permissions = Array.isArray(body.permissions) ? body.permissions : [];
-    const pageKeys = ['cwl', 'fillers', 'wars', 'clan_management', 'clan_access', 'clan_home', 'war_weights', 'strike_board', 'strike_manager'];
+    const pageKeys = ['cwl', 'fillers', 'wars', 'clan_management', 'clan_access', 'clan_home', 'war_weights', 'strike_board', 'strike_manager', 'audit_log'];
     if (!role || clanTags.length === 0 || permissions.length === 0) {
       send(res, 400, { ok: false, error: 'Role, at least one clan scope, and permissions are required.' });
       return;
@@ -2980,14 +3101,28 @@ async function handleStrikesConfirmed(
   try {
     const supabase = adminClient();
     const resolvedTag = await resolveClanTag(supabase, clanTag);
-    const { data, error } = await supabase
-      .from('strikes_confirmed')
-      .select('*')
-      .eq('clan_tag', resolvedTag)
-      .eq('is_active', true)
-      .order('issued_date', { ascending: false });
+    const [{ data, error }, roster] = await Promise.all([
+      supabase
+        .from('strikes_confirmed')
+        .select('*')
+        .eq('clan_tag', resolvedTag)
+        .eq('is_active', true)
+        .order('issued_date', { ascending: false }),
+      // Current website roster for this clan — lets the Strike Board push
+      // players who are no longer on the roster to the bottom.
+      supabase
+        .from('clan_players')
+        .select('player_tag')
+        .eq('clan_tag', resolvedTag),
+    ]);
     if (error) throw new Error(error.message);
-    send(res, 200, { ok: true, clan_tag: resolvedTag, strikes: data ?? [] });
+    send(res, 200, {
+      ok: true,
+      clan_tag: resolvedTag,
+      strikes: data ?? [],
+      // null = roster could not be loaded (client then treats everyone as current)
+      roster_tags: roster.error ? null : (roster.data ?? []).map((p) => p.player_tag),
+    });
   } catch (error) {
     send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Failed to load confirmed strikes.' });
   }
@@ -3717,6 +3852,323 @@ async function handlePlayerSearch(
   }
 }
 
+/* ───────────────────── audit log endpoint ───────────────────── */
+
+const REVERTABLE_TABLES = new Set([
+  'allowed_user_ids',
+  'page_permissions',
+  'family_clans',
+  'clan_players',
+  'war_weights',
+  'filler_accounts',
+  'bot_settings',
+  'family_wars',
+  'cwl_seasons',
+  'cwl_season_clans',
+  'cwl_clans',
+  'cwl_entries',
+  'strike_reasons_global',
+  'clan_strike_overrides',
+  'clan_strike_custom',
+  'strikes_pending',
+  'strikes_confirmed',
+  'strikes_archive',
+]);
+
+let lastAuditPurgeAt = 0;
+
+function deriveAuditAction(
+  path: string,
+  method: string | undefined,
+  query: Record<string, string>,
+  body: Record<string, unknown>,
+  isCron?: boolean
+): { action: string; skip: boolean } {
+  const m = (method ?? 'GET').toUpperCase();
+  const act = String(query.action || body.action || '').trim();
+  const automatedPaths = new Set(['sync', 'sync-fillers', 'sync-wars', 'sync-clan-roster', 'sync-war-weights']);
+  if (isCron || automatedPaths.has(path) || (path === 'cwl-roster' && act === 'sync_roles')) {
+    return { action: `${path}${act ? `:${act}` : ''}`, skip: true };
+  }
+  const key = act ? `${path}:${act}` : `${m}:${path}`;
+  const labels: Record<string, string> = {
+    'POST:tracked-clans': 'tracked_clans.add',
+    'DELETE:tracked-clans': 'tracked_clans.remove',
+    'access-management:save_user': 'users.save_role',
+    'access-management:delete_user': 'users.remove',
+    'access-management:create_role': 'roles.create',
+    'access-management:delete_role': 'roles.delete',
+    'access-management:save_permission': 'permissions.save',
+    'access-management:save_permissions': 'permissions.save_batch',
+    'POST:add-clan-player': 'roster.add_player',
+    'POST:edit-clan-player': 'roster.edit_player',
+    'POST:edit-clan-players': 'roster.edit_batch',
+    'POST:delete-clan-player': 'roster.remove_player',
+    'POST:edit-war-weight': 'war_weights.edit',
+    'POST:edit-war-weights': 'war_weights.edit_batch',
+    'POST:sync-settings': 'wars.set_fwa_sync',
+    'cwl-roster:create_season': 'cwl.create_season',
+    'cwl-roster:close_season': 'cwl.close_season',
+    'cwl-roster:rename_season': 'cwl.rename_season',
+    'cwl-roster:update_clans': 'cwl.update_season_clans',
+    'cwl-roster:add_clan': 'cwl.add_season_clan',
+    'cwl-roster:remove_clan': 'cwl.remove_season_clan',
+    'cwl-roster:set_size': 'cwl.set_roster_size',
+    'cwl-roster:set_role': 'cwl.set_discord_role',
+    'cwl-roster:assign': 'cwl.assign_player',
+    'cwl-roster:assign_many': 'cwl.assign_batch',
+    'cwl-roster:autofill': 'cwl.autofill',
+    'cwl-roster:unassign': 'cwl.unassign',
+    'POST:cwl-entries': 'cwl_entries.add',
+    'PATCH:cwl-entries': 'cwl_entries.edit',
+    'DELETE:cwl-entries': 'cwl_entries.delete',
+    'POST:cwl-signup-settings': 'cwl.toggle_setting',
+    'POST:cwl-clans': 'cwl_clans.add',
+    'PATCH:cwl-clans': 'cwl_clans.edit',
+    'DELETE:cwl-clans': 'cwl_clans.remove',
+    'strike-config:save_reason': 'strike_config.save_global_reason',
+    'strike-config:delete_reason': 'strike_config.delete_global_reason',
+    'strike-config:save_override': 'strike_config.save_clan_override',
+    'strike-config:delete_override': 'strike_config.delete_clan_override',
+    'strike-config:save_custom': 'strike_config.save_clan_custom',
+    'strike-config:delete_custom': 'strike_config.delete_clan_custom',
+    'strikes:pending': 'strikes.stage_pending',
+    'strikes:edit_pending': 'strikes.edit_pending',
+    'strikes:delete_pending': 'strikes.delete_pending',
+    'strikes:clear_pending': 'strikes.clear_pending',
+    'strikes:confirm': 'strikes.confirm',
+    'strikes:confirm_batch': 'strikes.confirm_batch',
+    'strikes:edit_strike': 'strikes.edit_confirmed',
+    'strikes:resolve': 'strikes.resolve',
+    'strikes:reduce': 'strikes.reduce',
+    'strikes:reset': 'strikes.season_reset',
+    'audit-log:revert': 'audit_log.revert',
+  };
+  return { action: labels[key] || key, skip: false };
+}
+
+async function handleAuditLog(
+  req: { method?: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown; query?: Record<string, string | string[] | undefined> },
+  res: { status: (code: number) => { json: (body: unknown) => void } },
+  auth: AuthResult
+): Promise<void> {
+  if (auth.ok === false) {
+    send(res, 401, { ok: false, error: auth.message });
+    return;
+  }
+  const canView = isManagement(auth) || (await canAccessClanPage(req, '*', 'audit_log'));
+  if (!canView) {
+    send(res, 403, { ok: false, error: 'You do not have permission to view the Audit Log.' });
+    return;
+  }
+
+  const raw = rawAdminClient();
+
+  // Opportunistic 90-day retention purge (at most once per hour per instance).
+  if (Date.now() - lastAuditPurgeAt > 60 * 60 * 1000) {
+    lastAuditPurgeAt = Date.now();
+    void raw.rpc('audit_log_purge', { retention_days: 90 }).then(() => {}, () => {});
+  }
+
+  if (!req.method || req.method === 'GET') {
+    const q = getQuery(req);
+    if (q.action === 'request' && q.request_id) {
+      const { data, error } = await raw
+        .from('audit_log')
+        .select('id,occurred_at,table_name,operation,row_pk,old_data,new_data,changed_fields,clan_tag,actor_discord_id,actor_name,actor_username,actor_role,actor_avatar_url,source,action,request_id,revert_of,reverted_at,reverted_by,reverted_by_log_id')
+        .eq('request_id', q.request_id)
+        .order('id', { ascending: true })
+        .limit(500);
+      if (error) {
+        send(res, 500, { ok: false, error: error.message });
+        return;
+      }
+      send(res, 200, { ok: true, logs: data ?? [] });
+      return;
+    }
+
+    const limit = Math.min(Math.max(Number(q.limit) || 60, 1), 200);
+    const beforeId = q.before_id ? Number(q.before_id) : null;
+    let query = raw
+      .from('audit_log')
+      .select(
+        'id,occurred_at,table_name,operation,row_pk,old_data,new_data,changed_fields,clan_tag,actor_discord_id,actor_name,actor_username,actor_role,actor_avatar_url,source,action,request_id,revert_of,reverted_at,reverted_by,reverted_by_log_id',
+        { count: 'exact' }
+      )
+      .order('id', { ascending: false })
+      .limit(limit);
+
+    if (beforeId && Number.isFinite(beforeId)) query = query.lt('id', beforeId);
+    if (q.table) query = query.eq('table_name', q.table);
+    if (q.operation && ['INSERT', 'UPDATE', 'DELETE'].includes(q.operation.toUpperCase())) {
+      query = query.eq('operation', q.operation.toUpperCase());
+    }
+    if (q.actor) {
+      if (q.actor.startsWith('source:')) {
+        query = query.eq('source', q.actor.slice(7));
+      } else {
+        query = query.eq('actor_discord_id', q.actor);
+      }
+    }
+    if (q.source) query = query.eq('source', q.source);
+    if (q.clan_tag) query = query.eq('clan_tag', q.clan_tag);
+    if (q.from) query = query.gte('occurred_at', q.from);
+    if (q.to) query = query.lte('occurred_at', q.to);
+    if (q.reverted === 'only') query = query.not('reverted_at', 'is', null);
+    if (q.reverted === 'active') query = query.is('reverted_at', null);
+    if (q.q && q.q.trim()) {
+      const term = q.q.trim().toLowerCase().replace(/[%_]/g, '\\$&');
+      query = query.ilike('search_text', `%${term}%`);
+    }
+
+    const needOverview = q.include_overview !== '0' && !beforeId;
+    const [listRes, overviewRes, clansRes] = await Promise.all([
+      query,
+      needOverview ? raw.rpc('audit_log_overview') : Promise.resolve({ data: null, error: null }),
+      needOverview ? raw.from('family_clans').select('clan_tag, clan_name').order('clan_name') : Promise.resolve({ data: null, error: null }),
+    ]);
+
+    if (listRes.error) {
+      const msg = listRes.error.message || 'Failed to query audit log.';
+      const missing = msg.toLowerCase().includes('audit_log') && (msg.toLowerCase().includes('does not exist') || msg.toLowerCase().includes('schema cache'));
+      send(res, missing ? 200 : 500, {
+        ok: !missing,
+        not_installed: missing,
+        logs: [],
+        total: 0,
+        error: missing ? 'Run supabase/audit-log.sql in the Supabase SQL Editor to enable database auditing.' : msg,
+      });
+      return;
+    }
+
+    const rows = listRes.data ?? [];
+    send(res, 200, {
+      ok: true,
+      logs: rows,
+      total: listRes.count ?? rows.length,
+      next_cursor: rows.length === limit ? rows[rows.length - 1]?.id ?? null : null,
+      overview: overviewRes.data ?? undefined,
+      clans: clansRes.data ?? undefined,
+    });
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    send(res, 405, { ok: false, error: 'Use GET or POST.' });
+    return;
+  }
+
+  const body = readJsonBody(req);
+  const action = String(body.action ?? '');
+
+  if (action === 'revert') {
+    if (!isDeveloper(auth)) {
+      send(res, 403, { ok: false, error: 'Only Developers can revert database changes.' });
+      return;
+    }
+    const logId = Number(body.id);
+    if (!Number.isFinite(logId) || logId <= 0) {
+      send(res, 400, { ok: false, error: 'Valid log entry ID is required.' });
+      return;
+    }
+    const { data: entry, error: fetchErr } = await raw
+      .from('audit_log')
+      .select('*')
+      .eq('id', logId)
+      .maybeSingle();
+    if (fetchErr || !entry) {
+      send(res, 404, { ok: false, error: fetchErr?.message || 'Audit entry not found.' });
+      return;
+    }
+    if (entry.reverted_at) {
+      send(res, 400, { ok: false, error: 'This change has already been reverted.' });
+      return;
+    }
+    const table = String(entry.table_name ?? '');
+    if (!REVERTABLE_TABLES.has(table)) {
+      send(res, 400, { ok: false, error: `Reverting table "${table}" is not allowed.` });
+      return;
+    }
+    const pk = (entry.row_pk ?? null) as Record<string, unknown> | null;
+    const pkEntries = pk ? Object.entries(pk).filter(([, v]) => v !== null && v !== undefined) : [];
+    const op = String(entry.operation ?? '');
+
+    // Execute the inverse write with audit headers pointing back to `logId`.
+    const audited = adminClient({ revertOf: logId, action: `audit_log.revert:${table}` });
+
+    if (op === 'INSERT') {
+      if (pkEntries.length === 0) {
+        send(res, 400, { ok: false, error: 'Cannot revert INSERT: row primary key was not recorded.' });
+        return;
+      }
+      let del = audited.from(table).delete();
+      for (const [k, v] of pkEntries) del = del.eq(k, v as string);
+      const { error: delErr } = await del;
+      if (delErr) {
+        send(res, 500, { ok: false, error: `Revert DELETE failed: ${delErr.message}` });
+        return;
+      }
+    } else if (op === 'DELETE') {
+      const oldRow = entry.old_data as Record<string, unknown> | null;
+      if (!oldRow || typeof oldRow !== 'object') {
+        send(res, 400, { ok: false, error: 'Cannot revert DELETE: previous row data is missing.' });
+        return;
+      }
+      const { error: insErr } = await audited.from(table).insert(oldRow);
+      if (insErr) {
+        send(res, 500, { ok: false, error: `Revert INSERT failed: ${insErr.message}` });
+        return;
+      }
+    } else if (op === 'UPDATE') {
+      const oldRow = entry.old_data as Record<string, unknown> | null;
+      if (!oldRow || pkEntries.length === 0) {
+        send(res, 400, { ok: false, error: 'Cannot revert UPDATE: primary key or previous values missing.' });
+        return;
+      }
+      const changed: string[] = Array.isArray(entry.changed_fields) && entry.changed_fields.length > 0
+        ? entry.changed_fields
+        : Object.keys(oldRow);
+      const patch: Record<string, unknown> = {};
+      for (const col of changed) {
+        if (col in oldRow) patch[col] = oldRow[col];
+      }
+      let upd = audited.from(table).update(patch);
+      for (const [k, v] of pkEntries) upd = upd.eq(k, v as string);
+      const { error: updErr } = await upd;
+      if (updErr) {
+        send(res, 500, { ok: false, error: `Revert UPDATE failed: ${updErr.message}` });
+        return;
+      }
+    } else {
+      send(res, 400, { ok: false, error: `Unsupported operation "${op}".` });
+      return;
+    }
+
+    const { data: revertRow } = await raw
+      .from('audit_log')
+      .select('id')
+      .eq('revert_of', logId)
+      .order('id', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const actorLabel = auth.user?.name || auth.user?.username || auth.user?.discordId || 'Developer';
+    await raw
+      .from('audit_log')
+      .update({
+        reverted_at: new Date().toISOString(),
+        reverted_by: actorLabel,
+        reverted_by_log_id: revertRow?.id ?? null,
+      })
+      .eq('id', logId);
+
+    send(res, 200, { ok: true, reverted_id: logId, new_log_id: revertRow?.id ?? null });
+    return;
+  }
+
+  send(res, 400, { ok: false, error: `Unknown audit-log action: ${action}` });
+}
+
 /* ───────────────────── route dispatch ───────────────────── */
 
 export default async function handler(req: unknown, res: {
@@ -3785,9 +4237,28 @@ export default async function handler(req: unknown, res: {
       }
     }
 
-    // Route dispatch
-    switch (path) {
-      case 'player-search':
+    // Route dispatch (wrapped in audit context so every adminClient() write
+    // carries the authenticated user's Discord identity and action label)
+    const dispatchQuery = getQuery(r);
+    const dispatchBody = r.method && r.method !== 'GET' && r.method !== 'HEAD' ? readJsonBody(r) : {};
+    const { action: auditAction, skip: auditSkip } = deriveAuditAction(path, r.method, dispatchQuery, dispatchBody, auth.isCron);
+    const auditCtx: AuditContext = {
+      requestId: randomUUID(),
+      action: auditAction,
+      skip: auditSkip,
+      discordId: auth.user?.discordId,
+      name: auth.user?.name,
+      username: auth.user?.username,
+      role: auth.role,
+      avatarUrl: auth.user?.avatarUrl,
+    };
+
+    await auditStorage.run(auditCtx, async () => {
+      switch (path) {
+        case 'audit-log':
+          await handleAuditLog(r, res, auth);
+          break;
+        case 'player-search':
         await handlePlayerSearch(r, res);
         break;
       case 'discord-profile':
@@ -3925,6 +4396,7 @@ export default async function handler(req: unknown, res: {
       default:
         send(res, 404, { ok: false, error: `Not found. Path: ${path || '(empty)'}` });
     }
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     send(res, 500, { ok: false, error: message });

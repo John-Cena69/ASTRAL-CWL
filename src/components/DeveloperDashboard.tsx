@@ -4,6 +4,7 @@ import {
   Check,
   Copy,
   Eye,
+  History,
   KeyRound,
   Lock,
   LoaderCircle,
@@ -21,9 +22,10 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 import type { TrackedClan } from '@/types';
+import AuditLogTab from '@/components/AuditLogTab';
 
 type AccessLevel = 'none' | 'view' | 'edit';
-type ManagementTab = 'users' | 'permissions' | 'clans';
+type ManagementTab = 'users' | 'permissions' | 'clans' | 'audit';
 
 interface DiscordSummary {
   discord_id: string;
@@ -59,6 +61,7 @@ const GLOBAL_PERMISSION_PAGES = [
   ['fillers', 'Filler Accounts', 'View or manage alliance filler accounts'],
   ['wars', 'Wars & Sync', 'View family wars and FWA sync controls'],
   ['clan_management', 'Clan Management', 'Manage tracked clans, users, and permissions'],
+  ['audit_log', 'Audit Log', 'View database change history and before/after diffs'],
 ] as const;
 
 const CLAN_PAGE_ITEMS = [
@@ -107,8 +110,17 @@ function levelBadge(level: AccessLevel): { label: string; className: string } {
   };
 }
 
-export default function DeveloperDashboard() {
+interface DeveloperDashboardProps {
+  allowedRole?: string | null;
+}
+
+export default function DeveloperDashboard({ allowedRole = null }: DeveloperDashboardProps) {
+  const isDev = (allowedRole ?? '').toLowerCase() === 'developer';
+  const isMgmt = ['developer', 'admin'].includes((allowedRole ?? '').toLowerCase());
   const [activeTab, setActiveTab] = useState<ManagementTab>('users');
+  const [canManage, setCanManage] = useState<boolean>(true);
+  const [canViewAudit, setCanViewAudit] = useState<boolean>(true);
+  const [auditCount, setAuditCount] = useState<number | null>(null);
 
   const [clans, setClans] = useState<TrackedClan[]>([]);
   const [tagInput, setTagInput] = useState('');
@@ -246,9 +258,40 @@ export default function DeveloperDashboard() {
   };
 
   useEffect(() => {
-    void loadClans();
-    void loadAccess();
-  }, []);
+    let active = true;
+    const checkTabsAndLoad = async () => {
+      if (!supabase) {
+        void loadClans();
+        return;
+      }
+      if (isMgmt) {
+        if (active) {
+          setCanManage(true);
+          setCanViewAudit(true);
+        }
+        void loadClans();
+        void loadAccess();
+        return;
+      }
+      const [mgmtRes, auditRes] = await Promise.all([
+        supabase.rpc('can_access_clan_page', { requested_clan_tag: '*', requested_page_key: 'clan_management' }),
+        supabase.rpc('can_access_clan_page', { requested_clan_tag: '*', requested_page_key: 'audit_log' }),
+      ]);
+      const allowMgmt = mgmtRes.error ? true : mgmtRes.data !== false;
+      const allowAudit = auditRes.error ? false : auditRes.data === true;
+      if (active) {
+        setCanManage(allowMgmt);
+        setCanViewAudit(allowAudit);
+        if (!allowMgmt && allowAudit) setActiveTab('audit');
+      }
+      void loadClans();
+      if (allowMgmt) void loadAccess();
+    };
+    void checkTabsAndLoad();
+    return () => {
+      active = false;
+    };
+  }, [isMgmt]);
 
   const saveAccess = async (payload: Record<string, unknown>, successText = 'Access settings saved.') => {
     if (!supabase) return;
@@ -283,6 +326,8 @@ export default function DeveloperDashboard() {
       (p) => p.clan_tag === '*' && p.role.toLowerCase() === role.toLowerCase() && p.page_key === pageKey
     );
     if (global) return resolveRuleLevel(global);
+    // Sensitive pages default to 'none' unless explicitly granted.
+    if (pageKey === 'audit_log') return 'none';
     return 'edit';
   };
 
@@ -701,9 +746,23 @@ export default function DeveloperDashboard() {
       <div className="flex flex-wrap gap-2 border-b border-astral-700/30 pb-3">
         {(
           [
-            ['users', 'Users & Roles', Users, `${accessUsers.length} users · ${roleOptions.length} roles`],
-            ['permissions', 'Page Permissions', KeyRound, 'View & Edit per page'],
-            ['clans', 'Clans & Strikes', Swords, `${clans.length} clans`],
+            ...(canManage
+              ? ([
+                  ['users', 'Users & Roles', Users, `${accessUsers.length} users · ${roleOptions.length} roles`],
+                  ['permissions', 'Page Permissions', KeyRound, 'View & Edit per page'],
+                  ['clans', 'Clans & Strikes', Swords, `${clans.length} clans`],
+                ] as const)
+              : []),
+            ...(canViewAudit
+              ? ([
+                  [
+                    'audit',
+                    'Audit Log',
+                    History,
+                    auditCount !== null ? `${auditCount.toLocaleString()} changes` : '90d history',
+                  ],
+                ] as const)
+              : []),
           ] as const
         ).map(([tabKey, label, Icon, badge]) => {
           const active = activeTab === tabKey;
@@ -1422,6 +1481,15 @@ export default function DeveloperDashboard() {
             </section>
           </div>
         </div>
+      )}
+
+      {/* === TAB 4: AUDIT LOG === */}
+      {activeTab === 'audit' && (
+        <AuditLogTab
+          canRevert={isDev}
+          knownClans={clans.length > 0 ? clans : accessClans}
+          onCountChange={setAuditCount}
+        />
       )}
 
       {/* === Season Reset Modal === */}

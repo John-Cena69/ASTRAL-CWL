@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import {
   AlertCircle,
   Check,
+  ChevronDown,
   Clock,
   CopyIcon,
   LoaderCircle,
   Edit2,
   Shield,
   Star,
+  UserX,
   X,
   Save,
   Trash2,
@@ -30,6 +32,12 @@ function valueColor(value: number): string {
   if (value < 1.5) return 'text-emerald-300';
   if (value < 2.5) return 'text-amber-400';
   return 'text-rose-300';
+}
+
+const FORMER_PREF_KEY = 'strikeBoard.showFormerMembers';
+
+function normTag(tag: string | null | undefined): string {
+  return `#${String(tag ?? '').trim().toUpperCase().replace(/^#+/, '')}`;
 }
 
 interface StrikeRow {
@@ -100,6 +108,28 @@ export default function StrikeBoardPage({ clanTag, clanName, canEdit = true }: S
   const [showClanGamesConfirm, setShowClanGamesConfirm] = useState(false);
   const [showClanGamesPicker, setShowClanGamesPicker] = useState(false);
   const [clanGamesSelectedPlayers, setClanGamesSelectedPlayers] = useState<Set<string>>(new Set());
+  // Normalized tags of players currently on the clan's website roster.
+  // null = roster unknown → everyone is treated as a current member.
+  const [rosterTags, setRosterTags] = useState<Set<string> | null>(null);
+  const [showFormer, setShowFormer] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(FORMER_PREF_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleFormer = () => {
+    setShowFormer((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(FORMER_PREF_KEY, next ? '1' : '0');
+      } catch {
+        // storage unavailable
+      }
+      return next;
+    });
+  };
 
   const loadStrikes = async () => {
     if (!supabase) {
@@ -118,11 +148,17 @@ export default function StrikeBoardPage({ clanTag, clanName, canEdit = true }: S
       const body = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
         strikes?: StrikeRow[];
+        roster_tags?: string[] | null;
         error?: string;
       };
       if (!response.ok) throw new Error(body.error || `Failed to load strikes (HTTP ${response.status}).`);
       if (!body.ok) throw new Error(body.error || 'Failed to load strikes.');
       setStrikes(body.strikes ?? []);
+      setRosterTags(
+        Array.isArray(body.roster_tags) && body.roster_tags.length > 0
+          ? new Set(body.roster_tags.map(normTag))
+          : null
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load strikes.');
     } finally {
@@ -387,105 +423,38 @@ export default function StrikeBoardPage({ clanTag, clanName, canEdit = true }: S
   }
 
   const playerEntries = Array.from(playerMap.values()).sort((a, b) => b.total - a.total);
+  const isInRoster = (playerTag: string) => !rosterTags || rosterTags.has(normTag(playerTag));
+  const currentEntries = playerEntries.filter((p) => isInRoster(p.playerTag));
+  const formerEntries = playerEntries.filter((p) => !isInRoster(p.playerTag));
+  const formerTotal = formerEntries.reduce((sum, p) => sum + p.total, 0);
+  // Clan Games picker: current roster first, former members after.
+  const pickerEntries = [...currentEntries, ...formerEntries];
 
-  return (
-    <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <Shield className="w-6 h-6 text-gold-400" />
-            <h2 className="font-display text-2xl font-bold text-white">{clanName} — Strike Board</h2>
-            <p className="text-xs text-gold-400/80 font-mono">{clanTag}</p>
-          </div>
-          <p className="mt-1 text-sm text-astral-300/60">
-            Active confirmed strikes per player, sorted by highest total strike value.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          <button
-            onClick={() => void loadStrikes()}
-            className="astral-btn-ghost" title="Refresh strike board">
-            {loading ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Clock className="w-4 h-4" />}
-            {loading ? 'Loading...' : 'Refresh'}
-          </button>
-          {canEdit && (
-            <>
-              <button
-                onClick={handleMonthlyReduction}
-                disabled={reducing}
-                className="astral-btn-ghost text-xs" title="Monthly Strike Reduction (-1 all)">
-                {reducing ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
-                Monthly Reduction
-              </button>
-              <button
-                onClick={handleClanGamesReduction}
-                disabled={reducing}
-                className="astral-btn-ghost text-xs" title="Clan Games Reduction">
-                {reducing ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
-                Clan Games
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+  type PlayerEntry = (typeof playerEntries)[number];
 
-      {error && (
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200">
-          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-          <p className="text-sm flex-1">{error}</p>
-          <button
-            type="button"
-            onClick={() => setError(null)}
-            className="p-1 rounded-lg opacity-60 hover:opacity-100 hover:bg-white/10 transition shrink-0"
-            title="Dismiss"
-            aria-label="Dismiss error"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {notice && !error && (
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-200">
-          <Star className="w-5 h-5 flex-shrink-0 mt-0.5" />
-          <p className="text-sm flex-1">{notice}</p>
-          <button
-            type="button"
-            onClick={() => setNotice(null)}
-            className="p-1 rounded-lg opacity-60 hover:opacity-100 hover:bg-white/10 transition shrink-0"
-            title="Dismiss"
-            aria-label="Dismiss notification"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {loading ? (
-        <div className="astral-card p-12 text-center text-astral-300/60">
-          <LoaderCircle className="w-6 h-6 animate-spin mx-auto" />
-          <p className="mt-3 text-sm">Loading strikes...</p>
-        </div>
-      ) : playerEntries.length === 0 ? (
-        <div className="astral-card p-12 text-center">
-          <Shield className="w-8 h-8 mx-auto text-astral-300/40" />
-          <p className="mt-3 text-astral-200">No active strikes yet.</p>
-          <p className="mt-1 text-sm text-astral-300/50">Use Strike Manager to issue strikes.</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {playerEntries.map(({ playerName, playerTag, discordId, total, strikes }) => (
-            <article key={playerTag} className="astral-card overflow-hidden">
-              <div className="px-6 py-4 border-b border-astral-700/30 bg-gradient-to-r from-space-700/50 to-space-800/30">
+  const renderPlayerCard = ({ playerName, playerTag, discordId, total, strikes }: PlayerEntry, former = false) => (
+            <article
+              key={playerTag}
+              className={`astral-card overflow-hidden transition ${former ? 'opacity-70 hover:opacity-100 border-astral-700/20' : ''}`}
+            >
+              <div className={`px-6 py-4 border-b border-astral-700/30 ${former ? 'bg-space-800/40' : 'bg-gradient-to-r from-space-700/50 to-space-800/30'}`}>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-astral-500 to-astral-700 flex items-center justify-center shadow-lg shadow-astral-900/50">
-                      <Shield className="w-5 h-5 text-gold-300" />
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${former ? 'bg-space-700 border border-astral-700/40 shadow-space-950/50' : 'bg-gradient-to-br from-astral-500 to-astral-700 shadow-astral-900/50'}`}>
+                      {former ? <UserX className="w-5 h-5 text-astral-300/60" /> : <Shield className="w-5 h-5 text-gold-300" />}
                     </div>
                     <div>
-                      <h3 className="font-display text-lg font-bold text-white">
-                        {playerName}
-                      </h3>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className={`font-display text-lg font-bold ${former ? 'text-astral-200' : 'text-white'}`}>
+                          {playerName}
+                        </h3>
+                        {former && (
+                          <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-astral-700/25 border border-astral-600/30 text-astral-300/80">
+                            Not in roster
+                          </span>
+                        )}
+                      </div>
+
                       <div className="flex items-center gap-2 text-sm flex-col sm:flex-row">
                         <span className="font-mono text-gold-400">#{playerTag.replace(/^#/, '')}</span>
                         {discordId && (
@@ -660,7 +629,137 @@ export default function StrikeBoardPage({ clanTag, clanName, canEdit = true }: S
                 </table>
               </div>
             </article>
-          ))}
+  );
+
+  return (
+    <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <Shield className="w-6 h-6 text-gold-400" />
+            <h2 className="font-display text-2xl font-bold text-white">{clanName} — Strike Board</h2>
+            <p className="text-xs text-gold-400/80 font-mono">{clanTag}</p>
+          </div>
+          <p className="mt-1 text-sm text-astral-300/60">
+            Active confirmed strikes per player, sorted by highest total strike value. Players no longer in the roster are listed at the bottom.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={() => void loadStrikes()}
+            className="astral-btn-ghost" title="Refresh strike board">
+            {loading ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Clock className="w-4 h-4" />}
+            {loading ? 'Loading...' : 'Refresh'}
+          </button>
+          {canEdit && (
+            <>
+              <button
+                onClick={handleMonthlyReduction}
+                disabled={reducing}
+                className="astral-btn-ghost text-xs" title="Monthly Strike Reduction (-1 all)">
+                {reducing ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
+                Monthly Reduction
+              </button>
+              <button
+                onClick={handleClanGamesReduction}
+                disabled={reducing}
+                className="astral-btn-ghost text-xs" title="Clan Games Reduction">
+                {reducing ? <LoaderCircle className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
+                Clan Games
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200">
+          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+          <p className="text-sm flex-1">{error}</p>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="p-1 rounded-lg opacity-60 hover:opacity-100 hover:bg-white/10 transition shrink-0"
+            title="Dismiss"
+            aria-label="Dismiss error"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {notice && !error && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-200">
+          <Star className="w-5 h-5 flex-shrink-0 mt-0.5" />
+          <p className="text-sm flex-1">{notice}</p>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="p-1 rounded-lg opacity-60 hover:opacity-100 hover:bg-white/10 transition shrink-0"
+            title="Dismiss"
+            aria-label="Dismiss notification"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="astral-card p-12 text-center text-astral-300/60">
+          <LoaderCircle className="w-6 h-6 animate-spin mx-auto" />
+          <p className="mt-3 text-sm">Loading strikes...</p>
+        </div>
+      ) : playerEntries.length === 0 ? (
+        <div className="astral-card p-12 text-center">
+          <Shield className="w-8 h-8 mx-auto text-astral-300/40" />
+          <p className="mt-3 text-astral-200">No active strikes yet.</p>
+          <p className="mt-1 text-sm text-astral-300/50">Use Strike Manager to issue strikes.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {currentEntries.length === 0 ? (
+            <div className="astral-card p-8 text-center">
+              <Shield className="w-7 h-7 mx-auto text-astral-300/40" />
+              <p className="mt-3 text-astral-200">No current roster members have active strikes.</p>
+            </div>
+          ) : (
+            currentEntries.map((entry) => renderPlayerCard(entry))
+          )}
+
+          {formerEntries.length > 0 && (
+            <section className="pt-4" aria-label="Players no longer in the roster">
+              <button
+                type="button"
+                onClick={toggleFormer}
+                aria-expanded={showFormer}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-dashed border-astral-700/40 bg-space-900/40 hover:bg-space-800/50 hover:border-astral-600/50 transition text-left group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-space-700/70 border border-astral-700/40 flex items-center justify-center shrink-0">
+                  <UserX className="w-4 h-4 text-astral-300/70" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-astral-100">
+                    No longer in roster
+                    <span className="ml-2 text-[11px] font-medium px-2 py-0.5 rounded-full bg-space-950/60 text-astral-300/70">
+                      {formerEntries.length} player{formerEntries.length === 1 ? '' : 's'}
+                    </span>
+                  </p>
+                  <p className="text-xs text-astral-300/50 mt-0.5">
+                    Players with active strikes who have been removed from this clan's roster · {formerTotal} total strike value
+                  </p>
+                </div>
+                <span className="text-xs font-medium text-astral-300/70 group-hover:text-white inline-flex items-center gap-1 shrink-0">
+                  {showFormer ? 'Hide' : 'Show'}
+                  <ChevronDown className={`w-4 h-4 transition-transform ${showFormer ? 'rotate-180' : ''}`} />
+                </span>
+              </button>
+              {showFormer && (
+                <div className="mt-4 space-y-4">
+                  {formerEntries.map((entry) => renderPlayerCard(entry, true))}
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
 
@@ -719,8 +818,9 @@ export default function StrikeBoardPage({ clanTag, clanName, canEdit = true }: S
               Select players who completed Clan Games. Each selected player gets -1 strike (capped at 0).
             </p>
             <div className="mt-4 max-h-60 overflow-y-auto space-y-1">
-              {playerEntries.map(({ playerName, playerTag, discordId, total }) => {
+              {pickerEntries.map(({ playerName, playerTag, discordId, total }) => {
                 const isSelected = clanGamesSelectedPlayers.has(playerTag);
+                const former = !isInRoster(playerTag);
                 return (
                   <div
                     key={playerTag}
@@ -745,7 +845,14 @@ export default function StrikeBoardPage({ clanTag, clanName, canEdit = true }: S
                       <div className="flex items-center gap-2">
                         {isSelected && <Check className="w-3.5 h-3.5 text-gold-400 flex-shrink-0" />}
                         <div className="flex-1 min-w-0">
-                          <div className="text-astral-100 font-medium truncate">{playerName}</div>
+                          <div className={`font-medium truncate ${former ? 'text-astral-300/70' : 'text-astral-100'}`}>
+                            {playerName}
+                            {former && (
+                              <span className="ml-2 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-astral-700/25 text-astral-300/70 align-middle">
+                                Not in roster
+                              </span>
+                            )}
+                          </div>
                           <div className="text-xs text-astral-300/50 truncate">
                             {playerTag} {total !== 0 ? `· ${total} Strike(s)` : ''}
                           </div>
