@@ -60,11 +60,35 @@ function buildAuditHeaders(extra?: { skip?: boolean; revertOf?: number; action?:
   return headers;
 }
 
-function setAuditAction(action: string, extra?: { skip?: boolean }): void {
+function recordAuditSummaryEntry(params: {
+  table_name: string;
+  operation: 'INSERT' | 'UPDATE' | 'DELETE';
+  clan_tag?: string | null;
+  action?: string;
+  new_data?: Record<string, unknown> | null;
+  old_data?: Record<string, unknown> | null;
+  changed_fields?: string[];
+}): PromiseLike<unknown> {
   const ctx = auditStorage.getStore();
-  if (!ctx) return;
-  ctx.action = action;
-  if (extra?.skip !== undefined) ctx.skip = extra.skip;
+  if (ctx?.skip) return Promise.resolve();
+  const raw = rawAdminClient();
+  return raw.from('audit_log').insert({
+    table_name: params.table_name,
+    operation: params.operation,
+    row_pk: null,
+    old_data: params.old_data ?? null,
+    new_data: params.new_data ?? null,
+    changed_fields: params.changed_fields ?? [],
+    clan_tag: params.clan_tag ?? null,
+    actor_discord_id: ctx?.discordId ?? null,
+    actor_name: ctx?.name ?? null,
+    actor_username: ctx?.username ?? null,
+    actor_role: ctx?.role ?? null,
+    actor_avatar_url: ctx?.avatarUrl ?? null,
+    source: 'website',
+    action: params.action ?? ctx?.action ?? null,
+    request_id: ctx?.requestId ?? null,
+  });
 }
 
 function rawAdminClient(headers?: Record<string, string>): SupabaseClient {
@@ -1455,7 +1479,7 @@ async function handleEditWarWeight(req: { method?: string; url: string; headers:
   }
 
   try {
-    const supabase = adminClient();
+    const supabase = adminClient({ skip: true });
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
     if (!await canEditClanPage(req, clanTag, 'war_weights')) {
       send(res, 403, { ok: false, error: 'You only have view access to war weights.' });
@@ -1464,32 +1488,48 @@ async function handleEditWarWeight(req: { method?: string; url: string; headers:
     const playerTag = `#${playerTagRaw.toUpperCase().replace(/^#+/, '')}`;
 
     try {
+      const now = new Date().toISOString();
       // Update war_weights if the player has a row (players who joined after the war may not)
-      const { error, data } = await supabase
-        .from('war_weights')
-        .update({
-          value: valueNum,
-          war_weight: valueNum * 5,
-          updated_date: new Date().toISOString(),
-        })
-        .eq('clan_tag', clanTag)
-        .eq('player_tag', playerTag)
-        .select();
+      const [{ error, data }, { data: playerRows, error: playerError }, { data: clanRow }] = await Promise.all([
+        supabase
+          .from('war_weights')
+          .update({
+            value: valueNum,
+            war_weight: valueNum * 5,
+            updated_date: now,
+          })
+          .eq('clan_tag', clanTag)
+          .eq('player_tag', playerTag)
+          .select(),
+        // Also sync to clan_players so the home page roster reflects the change
+        supabase
+          .from('clan_players')
+          .update({ war_weight: valueNum * 5, updated_date: now })
+          .eq('clan_tag', clanTag)
+          .eq('player_tag', playerTag)
+          .select('player_tag'),
+        supabase.from('family_clans').select('clan_name').eq('clan_tag', clanTag).maybeSingle(),
+      ]);
       if (error) throw new Error(error.message);
-
-      // Also sync to clan_players so the home page roster reflects the change
-      const { data: playerRows, error: playerError } = await supabase
-        .from('clan_players')
-        .update({ war_weight: valueNum * 5, updated_date: new Date().toISOString() })
-        .eq('clan_tag', clanTag)
-        .eq('player_tag', playerTag)
-        .select('player_tag');
       if (playerError) throw new Error(playerError.message);
 
       if ((!data || data.length === 0) && (!playerRows || playerRows.length === 0)) {
         send(res, 404, { ok: false, error: 'Player not found.' });
         return;
       }
+
+      await recordAuditSummaryEntry({
+        table_name: 'war_weights',
+        operation: 'UPDATE',
+        clan_tag: clanTag,
+        action: 'war_weights.edit',
+        new_data: {
+          clan_tag: clanTag,
+          clan_name: clanRow?.clan_name ?? clanTag,
+          updated_count: 1,
+        },
+        changed_fields: ['war_weight'],
+      });
 
       send(res, 200, { ok: true, updated: data?.[0] ?? playerRows?.[0] });
     } catch (error) {
@@ -1538,7 +1578,7 @@ async function handleEditWarWeights(req: { method?: string; url: string; headers
   }
 
   try {
-    const supabase = adminClient();
+    const supabase = adminClient({ skip: true });
     const clanTag = await resolveClanTag(supabase, clanTagRaw);
     if (!await canEditClanPage(req, clanTag, 'war_weights')) {
       send(res, 403, { ok: false, error: 'You only have view access to war weights.' });
@@ -1548,27 +1588,60 @@ async function handleEditWarWeights(req: { method?: string; url: string; headers
     let updated = 0;
     const failed: string[] = [];
 
-    for (const update of parsedUpdates) {
-      const { data, error } = await supabase
-        .from('war_weights')
-        .update({
-          value: update.value,
-          war_weight: update.value * 5,
-          updated_date: now,
-        })
-        .eq('clan_tag', clanTag)
-        .eq('player_tag', update.playerTag)
-        .select('player_tag');
-      if (error) throw new Error(error.message);
-      if (data?.length) updated += 1;
-      else failed.push(update.playerTag);
+    const results = await Promise.all(
+      parsedUpdates.map(async (update) => {
+        const [{ data, error }, { data: cpData, error: cpError }] = await Promise.all([
+          supabase
+            .from('war_weights')
+            .update({
+              value: update.value,
+              war_weight: update.value * 5,
+              updated_date: now,
+            })
+            .eq('clan_tag', clanTag)
+            .eq('player_tag', update.playerTag)
+            .select('player_tag'),
+          // Also sync to clan_players so the home page roster reflects the change
+          supabase
+            .from('clan_players')
+            .update({ war_weight: update.value * 5, updated_date: now })
+            .eq('clan_tag', clanTag)
+            .eq('player_tag', update.playerTag)
+            .select('player_tag'),
+        ]);
+        if (error) throw new Error(error.message);
+        if (cpError) throw new Error(cpError.message);
+        return {
+          playerTag: update.playerTag,
+          ok: Boolean(data?.length || cpData?.length),
+        };
+      })
+    );
 
-      // Also sync to clan_players so the home page roster reflects the change
-      await supabase
-        .from('clan_players')
-        .update({ war_weight: update.value * 5, updated_date: now })
+    for (const r of results) {
+      if (r.ok) updated += 1;
+      else failed.push(r.playerTag);
+    }
+
+    if (updated > 0) {
+      const { data: clanRow } = await supabase
+        .from('family_clans')
+        .select('clan_name')
         .eq('clan_tag', clanTag)
-        .eq('player_tag', update.playerTag);
+        .maybeSingle();
+
+      await recordAuditSummaryEntry({
+        table_name: 'war_weights',
+        operation: 'UPDATE',
+        clan_tag: clanTag,
+        action: 'war_weights.edit_batch',
+        new_data: {
+          clan_tag: clanTag,
+          clan_name: clanRow?.clan_name ?? clanTag,
+          updated_count: updated,
+        },
+        changed_fields: ['war_weight'],
+      });
     }
 
     send(res, 200, { ok: true, updated, failed });
@@ -3859,7 +3932,6 @@ const REVERTABLE_TABLES = new Set([
   'page_permissions',
   'family_clans',
   'clan_players',
-  'war_weights',
   'filler_accounts',
   'bot_settings',
   'family_wars',
@@ -3873,6 +3945,13 @@ const REVERTABLE_TABLES = new Set([
   'strikes_pending',
   'strikes_confirmed',
   'strikes_archive',
+]);
+
+const CWL_REVERTABLE_UPDATE_TABLES = new Set([
+  'cwl_seasons',
+  'cwl_season_clans',
+  'cwl_clans',
+  'cwl_entries',
 ]);
 
 let lastAuditPurgeAt = 0;
@@ -3989,11 +4068,23 @@ async function handleAuditLog(
 
     const limit = Math.min(Math.max(Number(q.limit) || 60, 1), 200);
     const beforeId = q.before_id ? Number(q.before_id) : null;
+    const hasFilter = Boolean(
+      q.table ||
+        q.operation ||
+        q.actor ||
+        q.source ||
+        q.clan_tag ||
+        q.from ||
+        q.to ||
+        q.reverted ||
+        (q.q && q.q.trim())
+    );
+    const needOverview = q.include_overview !== '0' && !beforeId;
     let query = raw
       .from('audit_log')
       .select(
         'id,occurred_at,table_name,operation,row_pk,old_data,new_data,changed_fields,clan_tag,actor_discord_id,actor_name,actor_username,actor_role,actor_avatar_url,source,action,request_id,revert_of,reverted_at,reverted_by,reverted_by_log_id',
-        { count: 'exact' }
+        hasFilter && !beforeId ? { count: 'exact' } : undefined
       )
       .order('id', { ascending: false })
       .limit(limit);
@@ -4021,7 +4112,6 @@ async function handleAuditLog(
       query = query.ilike('search_text', `%${term}%`);
     }
 
-    const needOverview = q.include_overview !== '0' && !beforeId;
     const [listRes, overviewRes, clansRes] = await Promise.all([
       query,
       needOverview ? raw.rpc('audit_log_overview') : Promise.resolve({ data: null, error: null }),
@@ -4042,10 +4132,11 @@ async function handleAuditLog(
     }
 
     const rows = listRes.data ?? [];
+    const overviewObj = (overviewRes.data ?? null) as { total?: number } | null;
     send(res, 200, {
       ok: true,
       logs: rows,
-      total: listRes.count ?? rows.length,
+      total: listRes.count ?? (!hasFilter && typeof overviewObj?.total === 'number' ? overviewObj.total : rows.length),
       next_cursor: rows.length === limit ? rows[rows.length - 1]?.id ?? null : null,
       overview: overviewRes.data ?? undefined,
       clans: clansRes.data ?? undefined,
@@ -4092,6 +4183,13 @@ async function handleAuditLog(
     const pk = (entry.row_pk ?? null) as Record<string, unknown> | null;
     const pkEntries = pk ? Object.entries(pk).filter(([, v]) => v !== null && v !== undefined) : [];
     const op = String(entry.operation ?? '');
+    if (op === 'UPDATE' && !CWL_REVERTABLE_UPDATE_TABLES.has(table)) {
+      send(res, 400, {
+        ok: false,
+        error: 'Reverting edits is only enabled for CWL changes (or new entry additions and deletions).',
+      });
+      return;
+    }
 
     // Execute the inverse write with audit headers pointing back to `logId`.
     const audited = adminClient({ revertOf: logId, action: `audit_log.revert:${table}` });

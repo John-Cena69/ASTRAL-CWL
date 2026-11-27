@@ -156,23 +156,13 @@ const TABLE_META: Record<
     badge: 'bg-cyan-500/15 text-cyan-200 border-cyan-500/35',
     summary: (e, clans) => {
       const r = (e.new_data ?? e.old_data ?? {}) as Record<string, unknown>;
-      const name = String(r.player_name ?? '');
-      const tag = String(r.player_tag ?? '');
-      const clanTag = String(r.clan_tag ?? '');
-      const clan = clans.get(clanTag) || clanTag;
-      const oldW = e.old_data?.war_weight;
-      const newW = e.new_data?.war_weight;
-      if (e.operation === 'UPDATE' && oldW !== newW) {
-        return {
-          title: `War weight ${fmtWeight(oldW)} → ${fmtWeight(newW)}${clan ? ` (${clan})` : ''}`,
-          target: name || tag,
-          tag,
-        };
-      }
+      const clanTag = String(r.clan_tag ?? e.clan_tag ?? '');
+      const clan = String(r.clan_name ?? '') || clans.get(clanTag) || clanTag || 'clan';
+      const actor = e.actor_name || e.actor_username || e.actor_discord_id || 'User';
       return {
-        title: `${e.operation === 'INSERT' ? 'Added' : e.operation === 'DELETE' ? 'Removed' : 'Updated'} war weight entry${clan ? ` (${clan})` : ''}`,
-        target: name || tag,
-        tag,
+        title: `${actor} updated War Weights for`,
+        target: clan,
+        tag: clanTag || undefined,
       };
     },
   },
@@ -418,7 +408,24 @@ const FIELD_LABELS: Record<string, string> = {
   created_date: 'Created Date',
   updated_at: 'Updated At',
   updated_date: 'Updated Date',
+  updated_count: 'Updated Players',
 };
+
+const CWL_CATEGORY_TABLES = new Set([
+  'cwl_seasons',
+  'cwl_season_clans',
+  'cwl_clans',
+  'cwl_entries',
+]);
+
+function isEntryRevertable(entry: AuditLogEntry): boolean {
+  if (entry.reverted_at) return false;
+  if (entry.table_name === 'war_weights') return false;
+  if (!entry.row_pk || Object.keys(entry.row_pk).length === 0) return false;
+  if (entry.operation === 'INSERT' || entry.operation === 'DELETE') return true;
+  if (entry.operation === 'UPDATE') return CWL_CATEGORY_TABLES.has(entry.table_name);
+  return false;
+}
 
 function prettyField(col: string): string {
   return FIELD_LABELS[col] || col.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -567,8 +574,13 @@ function groupByBatch(logs: AuditLogEntry[], enabled: boolean): DisplayItem[] {
   const byRequest = new Map<string, { index: number; entries: AuditLogEntry[] }>();
 
   for (const entry of logs) {
-    // Only collapse when rows share a request_id, table, and operation (e.g. bulk confirm / monthly reduction)
-    const key = entry.request_id ? `${entry.request_id}:${entry.table_name}:${entry.operation}` : null;
+    // Collapse rows that share a request_id, table, and operation, or legacy war_weights updates for the same clan & actor
+    const key =
+      entry.table_name === 'war_weights'
+        ? `war_weights:${entry.clan_tag ?? ''}:${entry.actor_discord_id ?? entry.actor_name ?? ''}:${entry.request_id ?? entry.occurred_at.slice(0, 16)}`
+        : entry.request_id
+          ? `${entry.request_id}:${entry.table_name}:${entry.operation}`
+          : null;
     if (!key) {
       items.push({ kind: 'single', entry });
       continue;
@@ -581,13 +593,18 @@ function groupByBatch(logs: AuditLogEntry[], enabled: boolean): DisplayItem[] {
       items.push({ kind: 'single', entry });
     } else {
       existing.entries.push(entry);
-      items[existing.index] = {
-        kind: 'batch',
-        key,
-        request_id: entry.request_id!,
-        entries: existing.entries,
-        representative: existing.entries[0],
-      };
+      if (entry.table_name === 'war_weights') {
+        // Collapse legacy war_weights row logs into a single clean summary entry
+        items[existing.index] = { kind: 'single', entry: existing.entries[0] };
+      } else {
+        items[existing.index] = {
+          kind: 'batch',
+          key,
+          request_id: entry.request_id!,
+          entries: existing.entries,
+          representative: existing.entries[0],
+        };
+      }
     }
   }
   return items;
@@ -1046,6 +1063,7 @@ export default function AuditLogTab({ canRevert, knownClans = [], onCountChange 
   };
 
   const renderInlineFieldPreview = (entry: AuditLogEntry) => {
+    if (entry.table_name === 'war_weights') return null;
     if (entry.operation === 'UPDATE') {
       const cols = (entry.changed_fields ?? []).filter((c) => c !== 'updated_at' && c !== 'updated_date');
       if (cols.length === 0) return null;
@@ -1199,7 +1217,7 @@ export default function AuditLogTab({ canRevert, knownClans = [], onCountChange 
                 </>
               )}
             </button>
-            {canRevert && !entry.reverted_at && (
+            {canRevert && isEntryRevertable(entry) && (
               <button
                 type="button"
                 onClick={() => setRevertTarget(entry)}
@@ -1295,7 +1313,8 @@ export default function AuditLogTab({ canRevert, knownClans = [], onCountChange 
   };
 
   const renderEntryCard = (entry: AuditLogEntry, nested = false) => {
-    const isExpanded = expandedIds.has(entry.id);
+    const isSummaryOnly = entry.table_name === 'war_weights';
+    const isExpanded = !isSummaryOnly && expandedIds.has(entry.id);
     const op = operationChip(entry.operation);
     const desc = describeEntry(entry, clanLookup);
     const clanName = entry.clan_tag ? clanLookup.get(entry.clan_tag) || entry.clan_tag : null;
@@ -1310,17 +1329,21 @@ export default function AuditLogTab({ canRevert, knownClans = [], onCountChange 
         } ${entry.reverted_at ? 'opacity-70' : ''}`}
       >
         <div
-          onClick={() => toggleSet(setExpandedIds, entry.id)}
-          className="px-4 sm:px-5 py-3.5 cursor-pointer select-none flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-astral-700/10 transition"
+          onClick={isSummaryOnly ? undefined : () => toggleSet(setExpandedIds, entry.id)}
+          className={`px-4 sm:px-5 py-3.5 select-none flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition ${
+            isSummaryOnly ? '' : 'cursor-pointer hover:bg-astral-700/10'
+          }`}
         >
           <div className="flex items-start gap-3 min-w-0 flex-1">
-            <button
-              type="button"
-              aria-label={isExpanded ? 'Collapse log details' : 'Expand log details'}
-              className="mt-1 p-0.5 rounded text-astral-300/60 hover:text-white shrink-0"
-            >
-              {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-            </button>
+            {!isSummaryOnly && (
+              <button
+                type="button"
+                aria-label={isExpanded ? 'Collapse log details' : 'Expand log details'}
+                className="mt-1 p-0.5 rounded text-astral-300/60 hover:text-white shrink-0"
+              >
+                {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              </button>
+            )}
 
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -1381,7 +1404,7 @@ export default function AuditLogTab({ canRevert, knownClans = [], onCountChange 
                 {new Date(entry.occurred_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </div>
             </div>
-            {canRevert && !entry.reverted_at && (
+            {canRevert && isEntryRevertable(entry) && (
               <button
                 type="button"
                 onClick={(e) => {

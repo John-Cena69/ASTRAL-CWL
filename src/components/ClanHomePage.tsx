@@ -326,21 +326,33 @@ export default function ClanHomePage({ clanTag, clanName, canEdit = true }: Clan
         if (body.failed?.length) throw new Error(`Could not update: ${body.failed.join(', ')}`);
         updatedCount = body.updated ?? updates.length;
       }
-      // Weight edits go after tag edits; they use the player's current (possibly new) tag.
-      for (const w of weightUpdates) {
-        const tagUpdate = updates.find((u) => u.player_tag === w.player_tag);
-        const response = await fetch('/api/edit-war-weight', {
+      // Weight edits go after tag edits in a single batch call (one clan-level audit log entry)
+      if (weightUpdates.length > 0) {
+        const batchPayload = weightUpdates.map((w) => {
+          const tagUpdate = updates.find((u) => u.player_tag === w.player_tag);
+          return {
+            player_tag: tagUpdate?.new_player_tag ?? w.player_tag,
+            value: w.war_weight / 5,
+          };
+        });
+        const response = await fetch('/api/edit-war-weights', {
           method: 'POST',
           headers,
           body: JSON.stringify({
             clan_tag: resolvedClanTag,
-            player_tag: tagUpdate?.new_player_tag ?? w.player_tag,
-            value: w.war_weight / 5,
+            updates: batchPayload,
           }),
         });
-        const wb = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-        if (!response.ok || !wb.ok) throw new Error(wb.error || `War weight update failed for ${w.player_tag}.`);
-        if (!updates.some((u) => u.player_tag === w.player_tag)) updatedCount += 1;
+        const wb = (await response.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          failed?: string[];
+        };
+        if (!response.ok || !wb.ok) throw new Error(wb.error || 'War weight batch update failed.');
+        if (wb.failed?.length) throw new Error(`Could not update war weight for: ${wb.failed.join(', ')}`);
+        for (const w of weightUpdates) {
+          if (!updates.some((u) => u.player_tag === w.player_tag)) updatedCount += 1;
+        }
       }
       setNotice(`Updated ${updatedCount} player(s).`);
       cancelEdit();
