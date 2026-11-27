@@ -142,7 +142,7 @@ const TABLE_META: Record<
       const clan = clans.get(clanTag) || clanTag;
       if (e.operation === 'INSERT') return { title: `Added player to ${clan || 'clan'} roster`, target: name || tag, tag };
       if (e.operation === 'DELETE') return { title: `Removed player from ${clan || 'clan'} roster`, target: name || tag, tag };
-      const fields = (e.changed_fields ?? []).filter((f) => f !== 'updated_date' && f !== 'updated_at');
+      const fields = meaningfulChangedFields(e.changed_fields);
       return {
         title: `Updated roster player${clan ? ` in ${clan}` : ''} (${fields.map(prettyField).join(', ') || 'details'})`,
         target: name || tag,
@@ -410,6 +410,19 @@ const FIELD_LABELS: Record<string, string> = {
   updated_date: 'Updated Date',
   updated_count: 'Updated Players',
 };
+
+const IGNORED_UPDATE_FIELDS = new Set(['updated_at', 'updated_date', 'status', 'town_hall']);
+
+function meaningfulChangedFields(fields: string[] | null | undefined): string[] {
+  return (fields ?? []).filter((f) => !IGNORED_UPDATE_FIELDS.has(f));
+}
+
+function isIgnoredNoOpUpdate(entry: AuditLogEntry): boolean {
+  if (entry.operation !== 'UPDATE') return false;
+  if (entry.table_name === 'war_weights') return false;
+  const raw = entry.changed_fields ?? [];
+  return raw.length > 0 && meaningfulChangedFields(raw).length === 0;
+}
 
 const CWL_CATEGORY_TABLES = new Set([
   'cwl_seasons',
@@ -747,7 +760,7 @@ export default function AuditLogTab({ canRevert, knownClans = [], onCountChange 
         }
 
         setNotInstalled(false);
-        const rows = body.logs ?? [];
+        const rows = (body.logs ?? []).filter((r) => !isIgnoredNoOpUpdate(r));
         setLogs((prev) => (isLoadMore ? [...prev, ...rows] : rows));
         const nextTotal = body.total ?? rows.length;
         setTotal(nextTotal);
@@ -1065,7 +1078,7 @@ export default function AuditLogTab({ canRevert, knownClans = [], onCountChange 
   const renderInlineFieldPreview = (entry: AuditLogEntry) => {
     if (entry.table_name === 'war_weights') return null;
     if (entry.operation === 'UPDATE') {
-      const cols = (entry.changed_fields ?? []).filter((c) => c !== 'updated_at' && c !== 'updated_date');
+      const cols = meaningfulChangedFields(entry.changed_fields);
       if (cols.length === 0) return null;
       const preview = cols.slice(0, 3);
       return (
@@ -1117,8 +1130,10 @@ export default function AuditLogTab({ canRevert, knownClans = [], onCountChange 
     const showAll = showAllFieldsIds.has(entry.id);
     const oldObj = (entry.old_data ?? {}) as Record<string, unknown>;
     const newObj = (entry.new_data ?? {}) as Record<string, unknown>;
-    const allKeys = Array.from(new Set([...Object.keys(oldObj), ...Object.keys(newObj)]));
-    const changedSet = new Set(entry.changed_fields ?? []);
+    const allKeys = Array.from(new Set([...Object.keys(oldObj), ...Object.keys(newObj)])).filter(
+      (k) => !(entry.operation === 'UPDATE' && IGNORED_UPDATE_FIELDS.has(k))
+    );
+    const changedSet = new Set(meaningfulChangedFields(entry.changed_fields));
     const displayKeys =
       entry.operation === 'UPDATE' && !showAll
         ? allKeys.filter((k) => changedSet.has(k))
