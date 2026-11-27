@@ -4043,10 +4043,16 @@ async function handleAuditLog(
 
   const raw = rawAdminClient();
 
-  // Opportunistic 90-day retention purge (at most once per hour per instance).
+  // Opportunistic 90-day retention purge & noise cleanup (at most once per hour per instance).
   if (Date.now() - lastAuditPurgeAt > 60 * 60 * 1000) {
     lastAuditPurgeAt = Date.now();
     void raw.rpc('audit_log_purge', { retention_days: 90 }).then(() => {}, () => {});
+    void raw
+      .from('audit_log')
+      .delete()
+      .eq('operation', 'UPDATE')
+      .containedBy('changed_fields', ['updated_at', 'updated_date', 'status', 'town_hall'])
+      .then(() => {}, () => {});
   }
 
   if (!req.method || req.method === 'GET') {
