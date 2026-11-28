@@ -2120,11 +2120,15 @@ async function handleCwlRoster(req: { method?: string; url: string; headers: Rec
 
     if (method === 'GET') {
       const season = await getActive();
-      const [{ data: past, error: pastError }, { data: allClans, error: clansError }, { data: entries, error: entriesError }, { data: rawEntries }, rolesResult] = await Promise.all([
+      const [{ data: past, error: pastError }, { data: allClans, error: clansError }, { data: entries, error: entriesError }, { data: rawEntries }, { data: unregisteredRows }, rolesResult] = await Promise.all([
         supabase.from('cwl_seasons').select('*').eq('status', 'closed').order('closed_at', { ascending: false }).limit(10),
         supabase.from('cwl_clans').select('clan_tag, clan_name, cwl_league, badge_url'),
         supabase.from('cwl_entries_view').select('*').order('created_date', { ascending: true }),
         supabase.from('cwl_entries').select('id, status, current_clan, cwl_assigned_at'),
+        supabase
+          .from('cwl_unregistered')
+          .select('id, player_name, player_tag, current_clan, cwl_clan_tag, status, updated_at')
+          .order('player_name', { ascending: true }),
         fetchCwlGuildRoles(),
       ]);
       if (pastError) throw new Error(pastError.message);
@@ -2147,6 +2151,11 @@ async function handleCwlRoster(req: { method?: string; url: string; headers: Rec
       const lookup = new Set<string>();
       for (const entry of entries ?? []) {
         const n = normTag(entry.player_tag);
+        lookup.add(n);
+        lookup.add(n.slice(1));
+      }
+      for (const row of unregisteredRows ?? []) {
+        const n = normTag(row.player_tag);
         lookup.add(n);
         lookup.add(n.slice(1));
       }
@@ -2190,6 +2199,11 @@ async function handleCwlRoster(req: { method?: string; url: string; headers: Rec
             discord_id: discordMap.get(normTag(entry.player_tag)) ?? null,
           };
         }),
+        unregistered: (unregisteredRows ?? []).map((row) => ({
+          ...row,
+          cwl_clan_tag: row.cwl_clan_tag ? normTag(row.cwl_clan_tag) : null,
+          discord_id: discordMap.get(normTag(row.player_tag)) ?? null,
+        })),
       });
       return;
     }
