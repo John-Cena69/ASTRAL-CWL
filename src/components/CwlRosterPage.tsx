@@ -516,6 +516,7 @@ export default function CwlRosterPage({ canEdit = true }: { canEdit?: boolean })
   const [message, setMessage] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [collapsedRosters, setCollapsedRosters] = useState<Set<string>>(() => new Set());
+  const [search, setSearch] = useState('');
 
   const request = async (method: 'GET' | 'POST', payload?: Record<string, unknown>) => {
     if (!supabase) throw new Error('Supabase is not configured.');
@@ -692,6 +693,94 @@ export default function CwlRosterPage({ canEdit = true }: { canEdit?: boolean })
     [data]
   );
 
+  const query = search.trim().toLowerCase().replace(/^#/, '');
+  const hasSearch = query.length > 0;
+
+  const clanModels = useMemo(() => {
+    return sortedSeasonClans.map((sc) => {
+      const clan = clanByTag.get(sc.clan_tag);
+      const clanLabel = clan?.clan_name ?? sc.clan_tag;
+      const clanTagNorm = normTag(sc.clan_tag);
+      const roster = (data?.entries ?? [])
+        .filter((entry) => entry.cwl_clan_tag === sc.clan_tag)
+        .sort(byAssignment);
+      const rosterTags = new Set(roster.map((entry) => normTag(entry.player_tag)));
+      const unregisteredInClan = (data?.unregistered ?? [])
+        .filter(
+          (item) =>
+            normTag(item.cwl_clan_tag) === clanTagNorm &&
+            !rosterTags.has(normTag(item.player_tag))
+        )
+        .sort((a, b) => {
+          const aLeader = a.status.toLowerCase().includes('leader') ? 0 : 1;
+          const bLeader = b.status.toLowerCase().includes('leader') ? 0 : 1;
+          return aLeader - bLeader || a.player_name.localeCompare(b.player_name);
+        });
+
+      const clanSelfMatch =
+        hasSearch &&
+        (clanLabel.toLowerCase().includes(query) ||
+          sc.clan_tag.toLowerCase().replace(/^#/, '').includes(query) ||
+          (clan?.cwl_league ?? '').toLowerCase().includes(query));
+
+      const indexedRoster = roster.map((entry, idx) => ({ entry, slot: idx + 1 }));
+      const matchingRoster = !hasSearch || clanSelfMatch
+        ? indexedRoster
+        : indexedRoster.filter(({ entry }) =>
+            entry.player_name.toLowerCase().includes(query) ||
+            entry.player_tag.toLowerCase().replace(/^#/, '').includes(query) ||
+            (entry.discord_id ?? '').toLowerCase().includes(query) ||
+            (entry.current_clan ?? '').toLowerCase().includes(query) ||
+            (entry.home_clan ?? '').toLowerCase().includes(query) ||
+            (entry.cwl_clan_name ?? '').toLowerCase().includes(query) ||
+            (entry.status ?? '').toLowerCase().includes(query) ||
+            (entry.notes ?? '').toLowerCase().includes(query)
+          );
+
+      const matchingUnregistered = !hasSearch || clanSelfMatch
+        ? unregisteredInClan
+        : unregisteredInClan.filter(
+            (item) =>
+              item.player_name.toLowerCase().includes(query) ||
+              item.player_tag.toLowerCase().replace(/^#/, '').includes(query) ||
+              (item.discord_id ?? '').toLowerCase().includes(query) ||
+              (item.current_clan ?? '').toLowerCase().includes(query) ||
+              item.status.toLowerCase().includes(query)
+          );
+
+      const hasMatches =
+        !hasSearch ||
+        clanSelfMatch ||
+        matchingRoster.length > 0 ||
+        matchingUnregistered.length > 0;
+
+      return {
+        sc,
+        clan,
+        clanLabel,
+        roster,
+        unregisteredInClan,
+        matchingRoster,
+        matchingUnregistered,
+        hasMatches,
+      };
+    });
+  }, [sortedSeasonClans, clanByTag, data, hasSearch, query]);
+
+  const visibleClanModels = useMemo(
+    () => (hasSearch ? clanModels.filter((m) => m.hasMatches) : clanModels),
+    [clanModels, hasSearch]
+  );
+
+  const totalMatchingPlayers = useMemo(
+    () =>
+      visibleClanModels.reduce(
+        (sum, m) => sum + m.matchingRoster.length + m.matchingUnregistered.length,
+        0
+      ),
+    [visibleClanModels]
+  );
+
   return (
     <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-36 space-y-6">
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
@@ -780,59 +869,137 @@ export default function CwlRosterPage({ canEdit = true }: { canEdit?: boolean })
             </div>
           )}
 
-          {sortedSeasonClans.length > 1 && (
-            <div className="flex justify-end gap-2">
+          {sortedSeasonClans.length > 0 && (
+            <div className="astral-card p-4 sm:p-5 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-astral-300/50 pointer-events-none" />
+                  <input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search by player name, #tag, Discord ID, clan, status, or notes..."
+                    className="astral-input w-full pl-10 pr-9 py-2 text-sm"
+                  />
+                  {search && (
+                    <button
+                      type="button"
+                      onClick={() => setSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-astral-300/60 hover:text-white rounded-md"
+                      aria-label="Clear search"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {hasSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch('')}
+                    className="astral-btn-ghost py-2 px-3 text-xs shrink-0 self-start sm:self-auto"
+                    title="Clear search"
+                  >
+                    <X className="w-3.5 h-3.5" /> Reset
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-astral-300/60 pt-0.5">
+                <div>
+                  {hasSearch ? (
+                    <span>
+                      Found{' '}
+                      <span className="font-semibold text-white tabular-nums">
+                        {totalMatchingPlayers}
+                      </span>{' '}
+                      matching player{totalMatchingPlayers === 1 ? '' : 's'} across{' '}
+                      <span className="font-semibold text-white tabular-nums">
+                        {visibleClanModels.length}
+                      </span>{' '}
+                      of{' '}
+                      <span className="font-semibold text-white tabular-nums">
+                        {sortedSeasonClans.length}
+                      </span>{' '}
+                      clan{sortedSeasonClans.length === 1 ? '' : 's'}
+                    </span>
+                  ) : (
+                    <span>
+                      Showing all{' '}
+                      <span className="font-semibold text-white tabular-nums">
+                        {sortedSeasonClans.length}
+                      </span>{' '}
+                      CWL clan{sortedSeasonClans.length === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </div>
+
+                {sortedSeasonClans.length > 1 && !hasSearch && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCollapsedRosters(new Set(sortedSeasonClans.map((sc) => sc.clan_tag)))
+                      }
+                      className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2"
+                    >
+                      Minimise all clans
+                    </button>
+                    <span className="text-astral-300/30 text-xs">·</span>
+                    <button
+                      type="button"
+                      onClick={() => setCollapsedRosters(new Set())}
+                      className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2"
+                    >
+                      Expand all
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {hasSearch && visibleClanModels.length === 0 && (
+            <div className="astral-card p-14 text-center">
+              <Search className="w-10 h-10 mx-auto text-astral-300/30" />
+              <p className="mt-3 text-base font-medium text-astral-100">
+                No players or clans match &ldquo;{search.trim()}&rdquo;
+              </p>
+              <p className="mt-1 text-xs text-astral-300/50">
+                Try searching by a different name, #tag, Discord ID, status, or clan.
+              </p>
               <button
                 type="button"
-                onClick={() =>
-                  setCollapsedRosters(new Set(sortedSeasonClans.map((sc) => sc.clan_tag)))
-                }
-                className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2"
+                onClick={() => setSearch('')}
+                className="mt-4 astral-btn-ghost text-xs"
               >
-                Minimise all clans
-              </button>
-              <span className="text-astral-300/30 text-xs">·</span>
-              <button
-                type="button"
-                onClick={() => setCollapsedRosters(new Set())}
-                className="text-xs text-astral-300/60 hover:text-white underline underline-offset-2"
-              >
-                Expand all
+                <X className="w-3.5 h-3.5" /> Clear search
               </button>
             </div>
           )}
 
-          {sortedSeasonClans.map((sc) => {
-            const clan = clanByTag.get(sc.clan_tag);
-            const roster = (data?.entries ?? [])
-              .filter((entry) => entry.cwl_clan_tag === sc.clan_tag)
-              .sort(byAssignment);
-            const rosterTags = new Set(roster.map((entry) => normTag(entry.player_tag)));
-            const clanTagNorm = normTag(sc.clan_tag);
-            const unregisteredInClan = (data?.unregistered ?? [])
-              .filter(
-                (item) =>
-                  normTag(item.cwl_clan_tag) === clanTagNorm &&
-                  !rosterTags.has(normTag(item.player_tag))
-              )
-              .sort((a, b) => {
-                const aLeader = a.status.toLowerCase().includes('leader') ? 0 : 1;
-                const bLeader = b.status.toLowerCase().includes('leader') ? 0 : 1;
-                return aLeader - bLeader || a.player_name.localeCompare(b.player_name);
-              });
-            const missingWeightCount = roster.filter((entry) => entry.war_weight === null).length;
-            const average =
-              roster.length > 0
-                ? Math.round(
-                    roster.reduce((sum, entry) => sum + (entry.war_weight ?? 0), 0) / roster.length
-                  )
-                : null;
-            const free = Math.max(0, sc.roster_size - roster.length);
-            const full = roster.length >= sc.roster_size;
-            const clanLabel = clan?.clan_name ?? sc.clan_tag;
-            const fillers = [...unassigned].sort(byWeightDesc).slice(0, free);
-            const isCollapsed = collapsedRosters.has(sc.clan_tag);
-            const mappedRole = sc.role_id ? discordRolesById.get(sc.role_id) ?? null : null;
+          {visibleClanModels.map(
+            ({
+              sc,
+              clan,
+              clanLabel,
+              roster,
+              unregisteredInClan,
+              matchingRoster,
+              matchingUnregistered,
+            }) => {
+              const missingWeightCount = roster.filter((entry) => entry.war_weight === null).length;
+              const average =
+                roster.length > 0
+                  ? Math.round(
+                      roster.reduce((sum, entry) => sum + (entry.war_weight ?? 0), 0) /
+                        roster.length
+                    )
+                  : null;
+              const free = Math.max(0, sc.roster_size - roster.length);
+              const full = roster.length >= sc.roster_size;
+              const fillers = [...unassigned].sort(byWeightDesc).slice(0, free);
+              const isCollapsed = !hasSearch && collapsedRosters.has(sc.clan_tag);
+              const mappedRole = sc.role_id ? discordRolesById.get(sc.role_id) ?? null : null;
 
             return (
               <section key={sc.id} className="astral-card">
@@ -1010,7 +1177,7 @@ export default function CwlRosterPage({ canEdit = true }: { canEdit?: boolean })
                 </div>
 
                 {!isCollapsed &&
-                  (roster.length === 0 && unregisteredInClan.length === 0 ? (
+                  (matchingRoster.length === 0 && matchingUnregistered.length === 0 ? (
                     <div className="p-8 text-center">
                       <p className="text-sm text-astral-300/50">No players assigned yet.</p>
                       {unassigned.length > 0 && (
@@ -1041,12 +1208,12 @@ export default function CwlRosterPage({ canEdit = true }: { canEdit?: boolean })
                           </tr>
                         </thead>
                         <tbody>
-                          {roster.map((entry, index) => (
+                          {matchingRoster.map(({ entry, slot }) => (
                             <tr
                               key={entry.id}
                               className="border-b border-astral-700/10 text-astral-100"
                             >
-                              <td className="px-4 py-3 text-astral-300/60">{index + 1}</td>
+                              <td className="px-4 py-3 text-astral-300/60 tabular-nums">{slot}</td>
                               <td className="px-4 py-3 font-medium text-white">
                                 {entry.player_name}
                               </td>
@@ -1107,7 +1274,7 @@ export default function CwlRosterPage({ canEdit = true }: { canEdit?: boolean })
                               </td>
                             </tr>
                           ))}
-                          {unregisteredInClan.map((item) => (
+                          {matchingUnregistered.map((item) => (
                             <tr
                               key={`unreg-${item.id}`}
                               className="border-b border-astral-700/10 text-astral-100 bg-space-900/25"
