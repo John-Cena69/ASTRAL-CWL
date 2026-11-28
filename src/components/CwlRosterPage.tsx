@@ -65,12 +65,24 @@ interface Entry {
   created_date: string;
 }
 
+interface UnregisteredEntry {
+  id: string;
+  player_name: string;
+  player_tag: string;
+  discord_id: string | null;
+  current_clan: string | null;
+  cwl_clan_tag: string | null;
+  status: string;
+  updated_at: string;
+}
+
 const STATUS_STYLES: Record<string, string> = {
   'In CWL Clan': 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
   'In Wrong CWL Clan': 'bg-rose-500/15 text-rose-300 border-rose-500/30',
   'In Home Clan': 'bg-astral-500/15 text-astral-300 border-astral-500/30',
   'In Other Clan': 'bg-purple-500/15 text-purple-300 border-purple-500/30',
   Unregistered: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
+  'Leader - Unregistered': 'bg-amber-500/15 text-amber-300 border-amber-500/30',
 };
 
 interface RosterData {
@@ -80,7 +92,13 @@ interface RosterData {
   season_clans: SeasonClan[];
   discord_roles?: DiscordRole[];
   entries: Entry[];
+  unregistered?: UnregisteredEntry[];
   warning: string | null;
+}
+
+function normTag(value: string | null | undefined): string {
+  const cleaned = (value ?? '').trim().toUpperCase().replace(/^#+/, '');
+  return cleaned ? `#${cleaned}` : '';
 }
 
 function roleColorHex(color: number): string {
@@ -789,6 +807,19 @@ export default function CwlRosterPage({ canEdit = true }: { canEdit?: boolean })
             const roster = (data?.entries ?? [])
               .filter((entry) => entry.cwl_clan_tag === sc.clan_tag)
               .sort(byAssignment);
+            const rosterTags = new Set(roster.map((entry) => normTag(entry.player_tag)));
+            const clanTagNorm = normTag(sc.clan_tag);
+            const unregisteredInClan = (data?.unregistered ?? [])
+              .filter(
+                (item) =>
+                  normTag(item.cwl_clan_tag) === clanTagNorm &&
+                  !rosterTags.has(normTag(item.player_tag))
+              )
+              .sort((a, b) => {
+                const aLeader = a.status.toLowerCase().includes('leader') ? 0 : 1;
+                const bLeader = b.status.toLowerCase().includes('leader') ? 0 : 1;
+                return aLeader - bLeader || a.player_name.localeCompare(b.player_name);
+              });
             const missingWeightCount = roster.filter((entry) => entry.war_weight === null).length;
             const average =
               roster.length > 0
@@ -854,6 +885,16 @@ export default function CwlRosterPage({ canEdit = true }: { canEdit?: boolean })
                         {roster.length}/{sc.roster_size}
                       </div>
                     </div>
+                    {unregisteredInClan.length > 0 && (
+                      <div title="Players currently in this CWL clan who did not sign up">
+                        <div className="text-xs uppercase tracking-wide text-astral-300/60">
+                          Unregistered
+                        </div>
+                        <div className="font-semibold tabular-nums text-amber-300">
+                          {unregisteredInClan.length}
+                        </div>
+                      </div>
+                    )}
                     <div
                       title={
                         missingWeightCount > 0
@@ -969,7 +1010,7 @@ export default function CwlRosterPage({ canEdit = true }: { canEdit?: boolean })
                 </div>
 
                 {!isCollapsed &&
-                  (roster.length === 0 ? (
+                  (roster.length === 0 && unregisteredInClan.length === 0 ? (
                     <div className="p-8 text-center">
                       <p className="text-sm text-astral-300/50">No players assigned yet.</p>
                       {unassigned.length > 0 && (
@@ -1064,6 +1105,39 @@ export default function CwlRosterPage({ canEdit = true }: { canEdit?: boolean })
                                   </button>
                                 )}
                               </td>
+                            </tr>
+                          ))}
+                          {unregisteredInClan.map((item) => (
+                            <tr
+                              key={`unreg-${item.id}`}
+                              className="border-b border-astral-700/10 text-astral-100 bg-space-900/25"
+                            >
+                              <td className="px-4 py-3 text-astral-300/40">—</td>
+                              <td className="px-4 py-3 font-medium text-white">
+                                {item.player_name}
+                              </td>
+                              <td className="px-4 py-3 font-mono text-xs text-gold-300">
+                                {item.player_tag}
+                              </td>
+                              <td className="px-4 py-3 font-mono text-xs">
+                                {item.discord_id || '—'}
+                              </td>
+                              <td className="px-4 py-3">{item.current_clan || clanLabel}</td>
+                              <td className="px-4 py-3 text-right tabular-nums text-astral-300/40">
+                                —
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span
+                                  className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${
+                                    STATUS_STYLES[item.status] ||
+                                    'bg-slate-500/15 text-slate-300 border-slate-500/30'
+                                  }`}
+                                >
+                                  {item.status}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-astral-300/40">—</td>
+                              <td className="px-4 py-3" />
                             </tr>
                           ))}
                         </tbody>
